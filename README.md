@@ -6,7 +6,7 @@ Crilio helps you check that an AI assistant gives the answers you expect. You wr
 
 [![PyPI](https://img.shields.io/pypi/v/crilio?style=flat-square)](https://pypi.org/project/crilio/)
 [![Python](https://img.shields.io/pypi/pyversions/crilio?style=flat-square)](https://pypi.org/project/crilio/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](LICENSE)
+[![License: AGPLv3](https://img.shields.io/badge/License-AGPLv3-blue.svg?style=flat-square)](LICENSE)
 
 ## Why use Crilio?
 
@@ -162,4 +162,4 @@ pytest -q
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+GNU Affero General Public License v3.0. See [LICENSE](LICENSE).
