@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "crilio"
+version = "0.0.1"
+description = "The CI/CD quality gate for AI. Stop shipping prompt regressions to production."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Crilio" }]
+keywords = ["llm", "testing", "ci-cd", "ai-quality", "prompt-regression", "openai"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.13",
+]
+dependencies = [
+  "typer[all]>=0.9.0",
+  "rich>=13.7.0",
+  "pyyaml>=6.0",
+  "openai>=1.40.0",
+  "instructor>=1.3.0",
+  "pydantic>=2.5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/crilio/crilio"
+Repository = "https://github.com/crilio/crilio"
+
+[project.scripts]
+crilio = "crilio.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/crilio"]

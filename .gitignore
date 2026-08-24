@@ -1,0 +1,64 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+*.dist-info/
+.eggs/
+*.whl
+
+# Virtual env
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Env & secrets — BYOK, never commit
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+
+# Build
+dist/
+build/
+*.tar.gz
+*.zip
+
+# Crilio outputs
+crilio-results.json
+results.json
+crilio-results-*.json
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+
+# Crilio cache
+.config/crilio/models.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# OS
+.DS_Store
+ehthumbs.db
+Desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
