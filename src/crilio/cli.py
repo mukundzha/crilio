@@ -181,8 +181,23 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 """
-        if wf_path.exists() and not force:
-            console.print(f"[yellow]{wf_path} already exists — skipping[/]")
+        if wf_path.exists():
+            if not force:
+                console.print(f"[yellow]{wf_path} already exists — skipping[/]")
+            else:
+                should_overwrite = True
+                if is_tty and not yes:
+                    try:
+                        from rich.prompt import Confirm
+
+                        should_overwrite = Confirm.ask(f"{wf_path} already exists — replace it?", default=False, console=console)
+                    except Exception:
+                        should_overwrite = False
+                if should_overwrite:
+                    wf_path.write_text(wf_content, encoding="utf-8")
+                    console.print(f"[green]✓ Created {wf_path}[/] — runs on every Pull Request")
+                else:
+                    console.print(f"[yellow]Kept existing {wf_path} — not overwritten[/]")
         else:
             wf_path.write_text(wf_content, encoding="utf-8")
             console.print(f"[green]✓ Created {wf_path}[/] — runs on every Pull Request")

@@ -134,7 +134,7 @@ DEFAULT_CONFIG_YAML = """\
 settings:
   target_model: "gpt-4o"
   judge_model: "gpt-4o-mini"
-  max_monthly_budget_usd:
+  max_monthly_budget_usd: 10.0
 
 tests:
   - name: "Refund Policy Check"
