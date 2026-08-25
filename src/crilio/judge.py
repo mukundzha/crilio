@@ -4,7 +4,6 @@ import time
 from dataclasses import dataclass
 
 import instructor
-from openai import OpenAI
 from pydantic import BaseModel, Field
 
 
@@ -36,28 +35,45 @@ JUDGE_SYSTEM = (
 
 
 def judge_rule(
-    client: OpenAI,
+    client: object,
     *,
+    provider: str = "openai",
     judge_model: str,
     response: str,
     rule: str,
 ) -> JudgeResult:
-    patched = instructor.from_openai(client, mode=instructor.Mode.TOOLS_STRICT)
+    patched = (
+        instructor.from_anthropic(client)
+        if provider == "anthropic"
+        else instructor.from_openai(client, mode=instructor.Mode.TOOLS_STRICT)
+    )
     t0 = time.perf_counter()
     try:
-        verdict: JudgeVerdict = patched.chat.completions.create(
-            model=judge_model,
-            response_model=JudgeVerdict,
-            messages=[
-                {"role": "system", "content": JUDGE_SYSTEM},
-                {
-                    "role": "user",
-                    "content": f"RULE: {rule}\n\nRESPONSE:\n{response}\n\nDoes the response satisfy the rule?",
-                },
-            ],
-            temperature=0,
-            max_retries=1,
-        )
+        messages = [
+            {"role": "system", "content": JUDGE_SYSTEM},
+            {
+                "role": "user",
+                "content": f"RULE: {rule}\n\nRESPONSE:\n{response}\n\nDoes the response satisfy the rule?",
+            },
+        ]
+        if provider == "anthropic":
+            verdict = patched.messages.create(
+                model=judge_model,
+                response_model=JudgeVerdict,
+                messages=[messages[1]],
+                system=JUDGE_SYSTEM,
+                temperature=0,
+                max_tokens=1024,
+                max_retries=1,
+            )
+        else:
+            verdict = patched.chat.completions.create(
+                model=judge_model,
+                response_model=JudgeVerdict,
+                messages=messages,
+                temperature=0,
+                max_retries=1,
+            )
         latency = int((time.perf_counter() - t0) * 1000)
         return JudgeResult(rule=rule, passed=bool(verdict.rule_passed), reasoning=verdict.reasoning, latency_ms=latency)
     except Exception as e:

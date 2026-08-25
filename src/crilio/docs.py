@@ -51,9 +51,11 @@ Why strict `instructor`? LLMs ramble. Pydantic validation forces JSON, eliminate
 # Step 1: Install
 pip install crilio
 
-# Step 2: Add API Key (BYOK — never in code)
+# Step 2: Add a provider API key (BYOK — never in code)
 export OPENAI_API_KEY="sk-proj-xxxxx..."
-# → add to .env locally, and GitHub Secrets → OPENAI_API_KEY for CI
+# Or:
+export ANTHROPIC_API_KEY="sk-ant-xxxxx..."
+# → add to .env locally, and the matching GitHub Secret for CI
 
 # Step 3: Initialize config
 crilio init                         # creates crilio.yaml with dummy test
@@ -114,7 +116,7 @@ tests:
 ```
 
 Keys:
-- `provider`: `openai` (only)
+- `provider`: `openai` or `anthropic`
 - `model` / `judge_model`: override defaults
 - `system`: global system prompt (passed to Target); per-test `system` overrides
 - `tests[].name` must be unique
@@ -144,11 +146,12 @@ crilio run --model gpt-4o --verbose
 
 ---
 
-## 6 · Providers — OpenAI only
+## 6 · Providers — OpenAI and Anthropic
 
 | Provider | Env Key | Default target | Default judge |
 |---|---|---|---|
 | `openai` | `OPENAI_API_KEY=sk-...` | `gpt-4o` | `gpt-4o-mini` |
+| `anthropic` | `ANTHROPIC_API_KEY=...` | `claude-3-5-sonnet-latest` | `claude-3-5-haiku-latest` |
 
 `export` only — no `--api-key` flag. Add to `.env` locally, `GitHub Secrets → OPENAI_API_KEY` for CI (see Step 5 workflow `env: OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}`). BYOK — never stored by us, `.env` gitignored.
 
@@ -184,10 +187,11 @@ jobs:
       - run: crilio run
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 ```
 
-`crilio init` asks whether to create this workflow when run interactively. The
-workflow blocks the pull request when `crilio run` exits 1. There is no bundled
+`crilio init` asks whether to create this workflow when run interactively. Add
+the secret matching your configured provider. The workflow blocks the pull request when `crilio run` exits 1. There is no bundled
 `action.yml` or PR-comment integration.
 
 ---
@@ -225,7 +229,7 @@ Release: `python -m build && twine upload dist/*` → `pip install crilio`
 ## 11 · Cost & Roadmap
 
 - Judge ~$0.002/test (`gpt-4o-mini`), 10k tests ≈ $20 — you pay provider.
-- Roadmap: `target.command` (local bot), Cloud dashboard (history), Stripe license, Anthropic, self-hosted Judge.
+- Roadmap: `target.command` (local bot), Cloud dashboard (history), Stripe license, self-hosted Judge.
 
 ---
 

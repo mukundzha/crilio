@@ -2,8 +2,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
-
-from openai import OpenAI
+from typing import Any
 
 PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
     "openai": {
@@ -12,9 +11,14 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
         "base_url": "https://api.openai.com/v1",
         "env_key": "OPENAI_API_KEY",
     },
+    "anthropic": {
+        "model": "claude-3-5-sonnet-latest",
+        "judge_model": "claude-3-5-haiku-latest",
+        "env_key": "ANTHROPIC_API_KEY",
+    },
 }
 
-VALID_PROVIDERS = {"openai"}
+VALID_PROVIDERS = set(PROVIDER_DEFAULTS)
 
 MODEL_CATALOG: dict[str, list[str]] = {
     "openai": [
@@ -24,6 +28,7 @@ MODEL_CATALOG: dict[str, list[str]] = {
         "gpt-3.5-turbo",
         "o1-mini",
     ],
+    "anthropic": ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest"],
 }
 
 
@@ -47,11 +52,11 @@ def resolve_provider(
 ) -> ResolvedProvider:
     name = (provider or fallback_provider or "openai").lower().strip()
     if name not in VALID_PROVIDERS:
-        raise ValueError(f"unknown provider '{name}' — only openai is supported")
+        raise ValueError(f"unknown provider '{name}' — choose one of: {', '.join(sorted(VALID_PROVIDERS))}")
     defaults = PROVIDER_DEFAULTS[name]
     resolved_model = model or defaults["model"]
     resolved_judge = judge_model or defaults["judge_model"]
-    resolved_base = base_url or defaults["base_url"]
+    resolved_base = base_url or defaults.get("base_url")
     env_key = defaults["env_key"]
     resolved_key = api_key or os.getenv(env_key)
     return ResolvedProvider(
@@ -105,6 +110,8 @@ def resolve_for_test(
 def infer_provider_from_env() -> str | None:
     if os.getenv("OPENAI_API_KEY") or os.getenv("CRILIO_API_KEY"):
         return "openai"
+    if os.getenv("ANTHROPIC_API_KEY"):
+        return "anthropic"
     return None
 
 
@@ -112,6 +119,11 @@ def validate_api_key(provider: str, api_key: str, base_url: str | None = None) -
     if not api_key or len(api_key.strip()) < 6:
         return False, "key too short"
     try:
+        if provider == "anthropic":
+            from anthropic import Anthropic
+            Anthropic(api_key=api_key).models.list()
+            return True, "ok"
+        from openai import OpenAI
         kwargs: dict[str, str] = {"api_key": api_key}
         bp = base_url or PROVIDER_DEFAULTS.get(provider, {}).get("base_url")
         if bp:
@@ -164,6 +176,14 @@ def list_models(
         except Exception:
             pass
     try:
+        if provider == "anthropic":
+            from anthropic import Anthropic
+
+            resp = Anthropic(api_key=key).models.list()
+            ids = sorted(m.id for m in resp.data)
+            if ids:
+                return ids, True
+            return curated, False
         kwargs: dict[str, str] = {"api_key": key}
         bp = base_url or PROVIDER_DEFAULTS.get(provider, {}).get("base_url")
         if bp:
@@ -211,12 +231,22 @@ def load_dotenv():
                 pass
 
 
-def make_client(provider: ResolvedProvider) -> OpenAI:
+def make_client(provider: ResolvedProvider) -> Any:
     load_dotenv()
     api_key = provider.api_key or os.getenv(PROVIDER_DEFAULTS.get(provider.name, {}).get("env_key", "")) or os.getenv("CRILIO_API_KEY")
     if not api_key:
         env = PROVIDER_DEFAULTS.get(provider.name, {}).get("env_key", "OPENAI_API_KEY")
         raise RuntimeError(f"Missing credentials for provider '{provider.name}' — set {env} or add it to .env")
+    if provider.name == "anthropic":
+        try:
+            from anthropic import Anthropic
+        except ImportError as exc:
+            raise RuntimeError("Anthropic support requires the 'anthropic' package; install crilio[anthropic]") from exc
+        return Anthropic(api_key=api_key)
+    try:
+        from openai import OpenAI
+    except ImportError as exc:
+        raise RuntimeError("OpenAI-compatible providers require the 'openai' package") from exc
     kwargs: dict[str, str] = {"api_key": api_key}
     if provider.base_url:
         kwargs["base_url"] = provider.base_url

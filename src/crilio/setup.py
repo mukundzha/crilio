@@ -29,22 +29,24 @@ def load_dotenv_if_exists() -> None:
 
 
 def persist_env(provider: str, api_key: str) -> pathlib.Path:
-    if provider != "openai":
-        raise ValueError("only openai is supported")
+    env_keys = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+    if provider not in env_keys:
+        raise ValueError("supported providers: openai, anthropic")
+    env_key = env_keys[provider]
     target = pathlib.Path(".env")
     lines = target.read_text().splitlines() if target.exists() else []
     output: list[str] = []
     replaced = False
     for line in lines:
-        if line.strip().startswith("OPENAI_API_KEY="):
-            output.append(f"OPENAI_API_KEY={api_key}")
+        if line.strip().startswith(f"{env_key}="):
+            output.append(f"{env_key}={api_key}")
             replaced = True
         else:
             output.append(line)
     if not replaced:
         if output and output[-1].strip():
             output.append("")
-        output.append(f"OPENAI_API_KEY={api_key}")
+        output.append(f"{env_key}={api_key}")
     target.write_text("\n".join(output) + "\n")
     gitignore = pathlib.Path(".gitignore")
     if gitignore.exists():
@@ -57,13 +59,18 @@ def persist_env(provider: str, api_key: str) -> pathlib.Path:
 
 
 def validate_key(provider: str, api_key: str) -> tuple[bool, str]:
-    if provider != "openai":
-        return False, "only openai is supported"
+    if provider not in {"openai", "anthropic"}:
+        return False, "supported providers: openai, anthropic"
     if not api_key or len(api_key.strip()) < 8:
         return False, "key too short"
-    if not api_key.startswith("sk-"):
+    if provider == "openai" and not api_key.startswith("sk-"):
         return False, "OpenAI keys start with sk- (platform.openai.com/api-keys)"
     try:
+        if provider == "anthropic":
+            from anthropic import Anthropic
+
+            Anthropic(api_key=api_key).models.list()
+            return True, "ok"
         from openai import OpenAI
 
         OpenAI(api_key=api_key, timeout=6).models.list()
@@ -87,18 +94,20 @@ def interactive_setup(
 ) -> int:
     del base_url, force
     load_dotenv_if_exists()
-    if provider and provider.lower() != "openai":
-        print("Error: only openai is supported", file=sys.stderr)
+    provider_name = (provider or "openai").lower()
+    if provider_name not in {"openai", "anthropic"}:
+        print("Error: supported providers are openai and anthropic", file=sys.stderr)
         return 2
     if not api_key:
-        print("Usage: crilio setup --provider openai --api-key sk-... --yes", file=sys.stderr)
+        print("Usage: crilio setup --provider openai|anthropic --api-key ... --yes", file=sys.stderr)
         return 2
     if not skip_validate:
-        ok, message = validate_key("openai", api_key)
+        ok, message = validate_key(provider_name, api_key)
         if not ok and "network error" not in message:
             print(f"Validation failed: {message}", file=sys.stderr)
             return 2
-    target = persist_env("openai", api_key)
-    print(f"Saved OPENAI_API_KEY to {target} ({mask_key(api_key)})")
+    target = persist_env(provider_name, api_key)
+    env_key = "OPENAI_API_KEY" if provider_name == "openai" else "ANTHROPIC_API_KEY"
+    print(f"Saved {env_key} to {target} ({mask_key(api_key)})")
     print("Next: crilio run --dry-run -> crilio run")
     return 0

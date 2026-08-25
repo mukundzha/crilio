@@ -27,10 +27,12 @@ Your tests stay in your project, so they can be reviewed and run alongside your 
 pip install crilio
 ```
 
-### 2. Add your OpenAI key
+### 2. Add your provider key
 
 ```bash
 export OPENAI_API_KEY="sk-proj-..."
+# Or:
+export ANTHROPIC_API_KEY="sk-ant-..."
 ```
 
 You can also put the key in a `.env` file. Do not commit that file.
@@ -137,16 +139,18 @@ crilio run
 ```
 
 Add `OPENAI_API_KEY` to your repository secrets. A failed test blocks the pull request in GitHub Actions. Locally, a failed test is reported without blocking your shell workflow.
+For Anthropic configurations, add `ANTHROPIC_API_KEY` instead.
 
 ## Supported provider
 
-Crilio currently supports **OpenAI**.
+Crilio currently supports **OpenAI** and **Anthropic**.
 
 | Provider | Environment variable |
 | --- | --- |
 | OpenAI | `OPENAI_API_KEY` |
+| Anthropic | `ANTHROPIC_API_KEY` |
 
-Your key is used to communicate directly with OpenAI. Crilio does not receive or store it.
+Your key is used to communicate directly with the selected provider. Crilio does not receive or store it.
 
 ## Development
 

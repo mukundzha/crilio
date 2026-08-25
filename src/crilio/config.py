@@ -6,7 +6,7 @@ from typing import Literal, Optional
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-ProviderName = Literal["openai"]
+ProviderName = Literal["openai", "anthropic"]
 
 
 class Settings(BaseModel):

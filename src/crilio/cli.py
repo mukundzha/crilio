@@ -44,7 +44,7 @@ def _show_homepage():
     else:
         c.print(Panel.fit("  Crilio  —  pytest for prompts  ", style="bold white", border_style="white", padding=(1, 2)))
         c.print()
-    c.print(Panel.fit("  pip install crilio  →  crilio init  →  export OPENAI_API_KEY  →  crilio run  ", border_style="cyan", padding=(1, 2)))
+    c.print(Panel.fit("  pip install crilio  →  crilio init  →  set a provider key  →  crilio run  ", border_style="cyan", padding=(1, 2)))
     c.print()
     tbl = Table(show_header=False, box=None, padding=(0, 2))
     tbl.add_column("cmd", style="cyan", no_wrap=True, min_width=18)
@@ -69,15 +69,19 @@ def _show_homepage():
         model = cfg.model or "gpt-4o"
         c.print(Panel(f"  [green]● crilio.yaml found[/]  [dim]{n_tests} tests · {n_rules} rules · {provider}/{model}[/]  [cyan]crilio run --dry-run[/] to validate  ", border_style="green", padding=(0, 2)))
     except Exception:
-        c.print(Panel("  [yellow]● No crilio.yaml[/]  [dim]Run [cyan]crilio init[/] to create one → [cyan]export OPENAI_API_KEY[/] → [cyan]crilio run[/][/]", border_style="yellow", padding=(0, 2)))
+        c.print(Panel("  [yellow]● No crilio.yaml[/]  [dim]Run [cyan]crilio init[/] to create one → set OPENAI_API_KEY or ANTHROPIC_API_KEY → [cyan]crilio run[/][/]", border_style="yellow", padding=(0, 2)))
     c.print()
-    has_key = bool(os.getenv("OPENAI_API_KEY"))
-    if has_key:
+    configured_key = next(
+        ((name, defaults["env_key"], os.getenv(defaults["env_key"], "")) for name, defaults in PROVIDER_DEFAULTS.items() if os.getenv(defaults["env_key"])),
+        None,
+    )
+    if configured_key:
         from crilio.setup import mask_key
 
-        c.print(f"[dim]  OPENAI_API_KEY: {mask_key(os.getenv('OPENAI_API_KEY',''))} [green]● detected[/][/]")
+        name, env_key, key = configured_key
+        c.print(f"[dim]  {name}/{env_key}: {mask_key(key)} [green]● detected[/][/]")
     else:
-        c.print("[dim]  OPENAI_API_KEY: [red]○ missing[/] → export OPENAI_API_KEY=sk-proj-... (.env / GitHub Secrets)[/]")
+        c.print("[dim]  Provider key: [red]○ missing[/] → set OPENAI_API_KEY or ANTHROPIC_API_KEY (.env / GitHub Secrets)[/]")
     c.print()
 
 
@@ -136,7 +140,7 @@ def init(
     console.print()
     console.print(Panel.fit("  [yellow]⚠  Please check and modify [cyan]crilio.yaml[/] according to your need[/]\n  [dim]Update prompts and rules to match your app, then run [cyan]crilio run[/][/]", border_style="yellow", padding=(0, 2)))
     console.print()
-    console.print("[dim]Next: [cyan]export OPENAI_API_KEY=sk-...[/] → [cyan]crilio run --dry-run[/] → [cyan]crilio run[/][/]")
+    console.print("[dim]Next: set [cyan]OPENAI_API_KEY[/] or [cyan]ANTHROPIC_API_KEY[/] → [cyan]crilio run --dry-run[/] → [cyan]crilio run[/][/]")
 
     try:
         is_tty = sys.stdin.isatty() and sys.stdout.isatty()
@@ -175,6 +179,7 @@ jobs:
       - run: crilio run
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 """
         if wf_path.exists() and not force:
             console.print(f"[yellow]{wf_path} already exists — skipping[/]")
@@ -236,11 +241,12 @@ def run(
         raise typer.Exit(0)
 
     if not global_provider.api_key:
-        env_hint = "OPENAI_API_KEY"
+        env_hint = PROVIDER_DEFAULTS[global_provider.name]["env_key"]
+        key_hint = "sk-..." if global_provider.name == "openai" else "..."
         if json_output:
-            console.print_json(data={"error": f"Missing credentials: {env_hint} not set", "hint": f"export {env_hint}=sk-... (or add to .env / GitHub Secrets)"})
+            console.print_json(data={"error": f"Missing credentials: {env_hint} not set", "hint": f"export {env_hint}={key_hint} (or add to .env / GitHub Secrets)"})
         else:
-            err_console.print(Panel(f"[red]Missing credentials[/] — set {env_hint}\n\n  export {env_hint}=sk-proj-...\n  [dim]Add to .env or GitHub Secrets → Settings → Secrets → OPENAI_API_KEY[/]", title="auth error", border_style="red"))
+            err_console.print(Panel(f"[red]Missing credentials[/] — set {env_hint}\n\n  export {env_hint}={key_hint}\n  [dim]Add it to .env or GitHub Secrets[/]", title="auth error", border_style="red"))
         raise typer.Exit(2)
 
     console.print("[bold]🧪 Crilio Test Runner Started[/]")
@@ -275,7 +281,7 @@ def run(
         }
         try:
             tgt_client = make_client(tgt_provider)
-            target_res = call_target(tgt_client, model=tgt_provider.model, prompt=test.prompt, system=test.system or cfg.system)
+            target_res = call_target(tgt_client, provider=tgt_provider.name, model=tgt_provider.model, prompt=test.prompt, system=test.system or cfg.system)
             per_test["response"] = target_res.response
             per_test["latency_ms"] = target_res.latency_ms
         except Exception as e:
@@ -283,7 +289,7 @@ def run(
             is_auth = "api_key" in msg.lower() or "credentials" in msg.lower() or "401" in msg
             if is_auth:
                 if json_output:
-                    console.print_json(data={"error": msg, "hint": "check OPENAI_API_KEY"})
+                    console.print_json(data={"error": msg, "hint": f"check {PROVIDER_DEFAULTS[tgt_provider.name]['env_key']}"})
                 else:
                     err_console.print(Panel(msg, title="auth error", border_style="red"))
                 raise typer.Exit(2)
@@ -309,7 +315,7 @@ def run(
 
         all_pass = True
         for rule in test.rules:
-            jr = judge_rule(judge_client, judge_model=judge_provider.judge_model, response=target_res.response, rule=rule)
+            jr = judge_rule(judge_client, provider=judge_provider.name, judge_model=judge_provider.judge_model, response=target_res.response, rule=rule)
             per_test["rules"].append({"rule": jr.rule, "passed": jr.passed, "reasoning": jr.reasoning})
             if jr.passed:
                 total_pass += 1

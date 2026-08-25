@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
-from openai import OpenAI
 
 
 @dataclass
@@ -24,8 +23,9 @@ SYSTEM_PROMPT = (
 )
 
 def call_target(
-    client: OpenAI,
+    client: object,
     *,
+    provider: str = "openai",
     model: str,
     prompt: str,
     system: str | None = None,
@@ -36,16 +36,28 @@ def call_target(
     for attempt in range(max_retries + 1):
         try:
             t0 = time.perf_counter()
-            resp = client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": system or SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0,
-            )
+            if provider == "anthropic":
+                resp = client.messages.create(
+                    model=model,
+                    system=system or SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0,
+                    max_tokens=4096,
+                )
+                content = "".join(
+                    block.text for block in resp.content if getattr(block, "type", None) == "text"
+                )
+            else:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=[
+                        {"role": "system", "content": system or SYSTEM_PROMPT},
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0,
+                )
+                content = resp.choices[0].message.content or ""
             latency = int((time.perf_counter() - t0) * 1000)
-            content = resp.choices[0].message.content or ""
             return TargetResult(response=content.strip(), latency_ms=latency, model=model)
         except Exception as e:
             last_err = e
