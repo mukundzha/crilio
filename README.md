@@ -7,7 +7,7 @@ Crilio stops prompt regressions from reaching production. You version a `crilio.
 ## Quick Start
 
 ```bash
-pip install crilio
+pip install crilio 
 
 export OPENAI_API_KEY="sk-proj-..."   # or ANTHROPIC_API_KEY
 # .env also works — never commit it
