@@ -6,6 +6,7 @@ from dataclasses import dataclass
 import instructor
 from pydantic import BaseModel, Field
 
+from crilio.cost import Usage, cost_usd, estimate_tokens
 
 class JudgeVerdict(BaseModel):
     rule_passed: bool = Field(description="True if response satisfies the rule, False otherwise")
@@ -18,6 +19,8 @@ class JudgeResult:
     passed: bool
     reasoning: str
     latency_ms: int
+    usage: Usage
+    cost_usd: float
 
 
 JUDGE_SYSTEM = (
@@ -75,7 +78,23 @@ def judge_rule(
                 max_retries=1,
             )
         latency = int((time.perf_counter() - t0) * 1000)
-        return JudgeResult(rule=rule, passed=bool(verdict.rule_passed), reasoning=verdict.reasoning, latency_ms=latency)
+        judge_input = JUDGE_SYSTEM + rule + response
+        usage = Usage(estimate_tokens(judge_input), estimate_tokens(verdict.reasoning), estimated=True)
+        return JudgeResult(
+            rule=rule,
+            passed=bool(verdict.rule_passed),
+            reasoning=verdict.reasoning,
+            latency_ms=latency,
+            usage=usage,
+            cost_usd=cost_usd(judge_model, usage),
+        )
     except Exception as e:
         latency = int((time.perf_counter() - t0) * 1000)
-        return JudgeResult(rule=rule, passed=False, reasoning=f"judge error: {e}", latency_ms=latency)
+        return JudgeResult(
+            rule=rule,
+            passed=False,
+            reasoning=f"judge error: {e}",
+            latency_ms=latency,
+            usage=Usage(),
+            cost_usd=0.0,
+        )

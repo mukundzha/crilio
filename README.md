@@ -65,6 +65,7 @@ Here is a small example:
 settings:
   target_model: "gpt-4o"
   judge_model: "gpt-4o-mini"
+  budget_usd: 0.10
 
 tests:
   - name: "Refund answer"
@@ -120,6 +121,10 @@ crilio run --judge-model gpt-4o-mini
 - `--config` uses a different YAML file.
 - `--model` changes the model that answers your prompt.
 - `--judge-model` changes the model that checks the answer.
+
+Crilio reports token usage and estimated cost for every run. Add
+`settings.budget_usd` to fail the gate when the run exceeds your spending
+limit. Costs use published per-model prices; unknown models report zero cost.
 
 You can also use:
 

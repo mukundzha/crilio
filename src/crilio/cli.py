@@ -243,10 +243,23 @@ def run(
     if not global_provider.api_key:
         env_hint = PROVIDER_DEFAULTS[global_provider.name]["env_key"]
         key_hint = "sk-..." if global_provider.name == "openai" else "..."
+        other_provider = "anthropic" if global_provider.name == "openai" else "openai"
+        other_env = PROVIDER_DEFAULTS[other_provider]["env_key"]
+        other_hint = "sk-..." if other_provider == "openai" else "..."
         if json_output:
-            console.print_json(data={"error": f"Missing credentials: {env_hint} not set", "hint": f"export {env_hint}={key_hint} (or add to .env / GitHub Secrets)"})
+            console.print_json(data={
+                "error": f"Missing credentials: {env_hint} not set",
+                "hint": f"export {env_hint}={key_hint} (or use {other_env}={other_hint}; add the key to .env or GitHub Secrets)",
+            })
         else:
-            err_console.print(Panel(f"[red]Missing credentials[/] — set {env_hint}\n\n  export {env_hint}={key_hint}\n  [dim]Add it to .env or GitHub Secrets[/]", title="auth error", border_style="red"))
+            err_console.print(Panel(
+                f"[red]Missing credentials[/] — set {env_hint}\n\n"
+                f"  export {env_hint}={key_hint}\n"
+                f"  or export {other_env}={other_hint}\n"
+                "  [dim]Add the key to .env or GitHub Secrets[/]",
+                title="auth error",
+                border_style="red",
+            ))
         raise typer.Exit(2)
 
     console.print("[bold]🧪 Crilio Test Runner Started[/]")
@@ -259,6 +272,9 @@ def run(
     results: list[dict] = []
     total_pass = 0
     total_fail = 0
+    total_cost = 0.0
+    total_input_tokens = 0
+    total_output_tokens = 0
 
     for idx, test in enumerate(cfg.tests, 1):
         tgt_provider, judge_provider = resolve_for_test(
@@ -278,12 +294,18 @@ def run(
             "response": "",
             "passed": True,
             "latency_ms": 0,
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "cost_usd": 0.0,
         }
         try:
             tgt_client = make_client(tgt_provider)
             target_res = call_target(tgt_client, provider=tgt_provider.name, model=tgt_provider.model, prompt=test.prompt, system=test.system or cfg.system)
             per_test["response"] = target_res.response
             per_test["latency_ms"] = target_res.latency_ms
+            per_test["input_tokens"] += target_res.usage.input_tokens
+            per_test["output_tokens"] += target_res.usage.output_tokens
+            per_test["cost_usd"] += target_res.cost_usd
         except Exception as e:
             msg = str(e)
             is_auth = "api_key" in msg.lower() or "credentials" in msg.lower() or "401" in msg
@@ -317,6 +339,9 @@ def run(
         for rule in test.rules:
             jr = judge_rule(judge_client, provider=judge_provider.name, judge_model=judge_provider.judge_model, response=target_res.response, rule=rule)
             per_test["rules"].append({"rule": jr.rule, "passed": jr.passed, "reasoning": jr.reasoning})
+            per_test["input_tokens"] += jr.usage.input_tokens
+            per_test["output_tokens"] += jr.usage.output_tokens
+            per_test["cost_usd"] += jr.cost_usd
             if jr.passed:
                 total_pass += 1
             else:
@@ -324,6 +349,9 @@ def run(
                 all_pass = False
         per_test["passed"] = all_pass
         results.append(per_test)
+        total_cost += per_test["cost_usd"]
+        total_input_tokens += per_test["input_tokens"]
+        total_output_tokens += per_test["output_tokens"]
         if not json_output:
             _render_test_simple(idx, per_test)
             _render_test(console, per_test, verbose)
@@ -332,15 +360,35 @@ def run(
     gate_passed = total_fail == 0
 
     if json_output:
+        budget_exceeded = cfg.budget_usd is not None and total_cost > cfg.budget_usd
+        gate_passed = gate_passed and not budget_exceeded
         payload = {
             "gate": "PASS" if gate_passed else "FAIL",
             "elapsed_s": round(elapsed, 2),
-            "summary": {"passed": total_pass, "failed": total_fail, "total": total_pass + total_fail},
+            "summary": {
+                "passed": total_pass,
+                "failed": total_fail,
+                "total": total_pass + total_fail,
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+                "cost_usd": round(total_cost, 6),
+                "budget_usd": cfg.budget_usd,
+                "budget_exceeded": budget_exceeded,
+            },
             "tests": results,
         }
         console.print_json(data=payload)
     else:
-        _render_summary(gate_passed, total_pass, total_fail, elapsed)
+        budget_exceeded = cfg.budget_usd is not None and total_cost > cfg.budget_usd
+        gate_passed = gate_passed and not budget_exceeded
+        _render_summary(gate_passed, total_pass, total_fail, elapsed, budget_exceeded)
+        budget_text = f" / ${cfg.budget_usd:.4f} budget" if cfg.budget_usd is not None else ""
+        console.print(
+            f"[dim]Usage: {total_input_tokens + total_output_tokens:,} tokens • "
+            f"estimated cost ${total_cost:.6f}{budget_text}[/]"
+        )
+        if budget_exceeded:
+            console.print(f"[red]Budget exceeded: ${total_cost:.6f} > ${cfg.budget_usd:.6f}[/]")
 
     gha_enabled = pathlib.Path(".github/workflows/crilio.yml").exists() or os.getenv("GITHUB_ACTIONS") == "true"
     if not gha_enabled:
@@ -380,12 +428,13 @@ def _render_test(console: Console, test: dict, verbose: bool):
     console.print(tbl)
 
 
-def _render_summary(passed: bool, ok: int, fail: int, elapsed: float):
+def _render_summary(passed: bool, ok: int, fail: int, elapsed: float, budget_exceeded: bool = False):
     total = ok + fail
     if passed:
         console.print(f"\n[green bold]✓ Gate passed[/] — {ok}/{total} rules • {elapsed:.1f}s")
     else:
-        console.print(f"\n[red bold]✗ Gate failed[/] — {fail}/{total} FAILED • {elapsed:.1f}s")
+        reason = "budget exceeded" if budget_exceeded and fail == 0 else f"{fail}/{total} FAILED"
+        console.print(f"\n[red bold]✗ Gate failed[/] — {reason} • {elapsed:.1f}s")
         if pathlib.Path(".github/workflows/crilio.yml").exists() or os.getenv("GITHUB_ACTIONS") == "true":
             console.print("[dim]blocking PR[/]")
 

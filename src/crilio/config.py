@@ -12,6 +12,7 @@ ProviderName = Literal["openai", "anthropic"]
 class Settings(BaseModel):
     target_model: str = "gpt-4o"
     judge_model: str = "gpt-4o-mini"
+    budget_usd: Optional[float] = Field(None, ge=0)
 
 
 class TestCase(BaseModel):
@@ -39,6 +40,7 @@ class CrilioConfig(BaseModel):
     base_url: Optional[str] = None
     system: Optional[str] = None
     settings: Optional[Settings] = None
+    budget_usd: Optional[float] = Field(None, ge=0)
     tests: list[TestCase] = Field(..., min_length=1)
 
     @field_validator("tests")
@@ -56,6 +58,8 @@ class CrilioConfig(BaseModel):
                 self.model = self.settings.target_model
             if not self.judge_model:
                 self.judge_model = self.settings.judge_model
+            if self.budget_usd is None:
+                self.budget_usd = self.settings.budget_usd
             if not self.provider:
                 self.provider = "openai"
         if not self.model and self.provider == "openai":
@@ -93,6 +97,8 @@ def dump_yaml(cfg: CrilioConfig) -> str:
         "target_model": target_model,
         "judge_model": judge_model,
     }
+    if cfg.budget_usd is not None:
+        data["settings"]["budget_usd"] = cfg.budget_usd
     if cfg.system:
         data["system"] = cfg.system
     data["tests"] = [t.model_dump(exclude_none=True) for t in cfg.tests]

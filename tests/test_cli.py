@@ -30,6 +30,15 @@ def test_load_config_ok():
         pathlib.Path(f.name).unlink()
 
 
+def test_load_config_budget():
+    with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
+        f.write(MIN_YAML.replace("tests:", "settings:\n  budget_usd: 0.25\ntests:"))
+        f.flush()
+        cfg = load_config(f.name)
+        assert cfg.budget_usd == 0.25
+        pathlib.Path(f.name).unlink()
+
+
 def test_init_creates_file():
     with runner.isolated_filesystem():
         res = runner.invoke(app, ["init"])

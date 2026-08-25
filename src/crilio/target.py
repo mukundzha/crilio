@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 
+from crilio.cost import Usage, cost_usd
 
 
 @dataclass
@@ -10,6 +11,8 @@ class TargetResult:
     response: str
     latency_ms: int
     model: str
+    usage: Usage
+    cost_usd: float
 
 SYSTEM_PROMPT = (
     "<role>You are a deterministic, production-grade AI execution engine.</role>\n"
@@ -47,6 +50,7 @@ def call_target(
                 content = "".join(
                     block.text for block in resp.content if getattr(block, "type", None) == "text"
                 )
+                usage = Usage(resp.usage.input_tokens, resp.usage.output_tokens)
             else:
                 resp = client.chat.completions.create(
                     model=model,
@@ -57,8 +61,19 @@ def call_target(
                     temperature=0,
                 )
                 content = resp.choices[0].message.content or ""
+                raw_usage = resp.usage
+                usage = Usage(
+                    getattr(raw_usage, "prompt_tokens", 0),
+                    getattr(raw_usage, "completion_tokens", 0),
+                )
             latency = int((time.perf_counter() - t0) * 1000)
-            return TargetResult(response=content.strip(), latency_ms=latency, model=model)
+            return TargetResult(
+                response=content.strip(),
+                latency_ms=latency,
+                model=model,
+                usage=usage,
+                cost_usd=cost_usd(model, usage),
+            )
         except Exception as e:
             last_err = e
             if attempt < max_retries:

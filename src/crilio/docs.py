@@ -95,6 +95,7 @@ Example configuration:
 settings:
   target_model: "gpt-4o"
   judge_model: "gpt-4o-mini"
+  budget_usd: 0.10
 
 tests:
   - name: "Refund Policy Check"
@@ -118,6 +119,7 @@ tests:
 Keys:
 - `provider`: `openai` or `anthropic`
 - `model` / `judge_model`: override defaults
+- `settings.budget_usd`: optional maximum spend for a run; exceeding it fails the gate
 - `system`: global system prompt (passed to Target); per-test `system` overrides
 - `tests[].name` must be unique
 - `tests[].rules` are natural language — Judge is literal. Use `Must` / `Must NOT`.
