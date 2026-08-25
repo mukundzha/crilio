@@ -57,6 +57,13 @@ crilio run
 
 You will see each test, its response, and whether each rule passed or failed.
 
+To validate the configuration without calling an AI provider:
+
+```bash
+crilio validate
+crilio validate --json
+```
+
 ## Your `crilio.yaml`
 
 Here is a small example:
@@ -121,6 +128,11 @@ crilio run --judge-model gpt-4o-mini
 - `--config` uses a different YAML file.
 - `--model` changes the model that answers your prompt.
 - `--judge-model` changes the model that checks the answer.
+
+### `crilio validate`
+
+Checks the configuration, provider, models, tests, rules, and budget without
+making API calls. It exits `0` when valid and `2` when invalid.
 
 Crilio reports token usage and estimated cost for every run. Add
 `settings.budget_usd` to fail the gate when the run exceeds your spending

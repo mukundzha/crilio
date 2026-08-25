@@ -32,10 +32,10 @@ def test_load_config_ok():
 
 def test_load_config_budget():
     with tempfile.NamedTemporaryFile(suffix=".yaml", mode="w", delete=False) as f:
-        f.write(MIN_YAML.replace("tests:", "settings:\n  budget_usd: 0.25\ntests:"))
+        f.write(MIN_YAML.replace("tests:", "settings:\n  max_monthly_budget_usd: 0.25\ntests:"))
         f.flush()
         cfg = load_config(f.name)
-        assert cfg.budget_usd == 0.25
+        assert cfg.max_monthly_budget_usd == 0.25
         pathlib.Path(f.name).unlink()
 
 
@@ -69,6 +69,37 @@ def test_run_dry_run_json():
 def test_run_missing_config():
     with runner.isolated_filesystem():
         res = runner.invoke(app, ["run", "--dry-run"])
+        assert res.exit_code == 2
+
+
+def test_validate():
+    with runner.isolated_filesystem():
+        pathlib.Path("crilio.yaml").write_text(MIN_YAML)
+        res = runner.invoke(app, ["validate"])
+        assert res.exit_code == 0
+        assert "Configuration valid" in res.stdout
+        assert "Provider: openai" in res.stdout
+
+
+def test_validate_json():
+    with runner.isolated_filesystem():
+        pathlib.Path("crilio.yaml").write_text(MIN_YAML)
+        res = runner.invoke(app, ["validate", "--json"])
+        assert res.exit_code == 0
+        assert '"valid": true' in res.stdout
+
+
+def test_validate_invalid_config():
+    with runner.isolated_filesystem():
+        pathlib.Path("crilio.yaml").write_text("tests:\n  - name: duplicate\n    prompt: hi\n    rules: [ok]\n  - name: duplicate\n    prompt: hello\n    rules: [ok]\n")
+        res = runner.invoke(app, ["validate"])
+        assert res.exit_code == 2
+        assert "Configuration invalid" in res.stderr
+
+
+def test_validate_missing_config():
+    with runner.isolated_filesystem():
+        res = runner.invoke(app, ["validate"])
         assert res.exit_code == 2
 
 

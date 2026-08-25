@@ -4,6 +4,7 @@
 settings:
   target_model: gpt-4o
   judge_model: gpt-4o-mini
+  max_monthly_budget_usd:
 tests:
 - name: Refund Policy Check
   prompt: How long do I have to return a product?

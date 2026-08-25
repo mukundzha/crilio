@@ -262,7 +262,19 @@ def run(
             ))
         raise typer.Exit(2)
 
-    console.print("[bold]🧪 Crilio Test Runner Started[/]")
+    def _pct(spent: float, cap: float) -> str:
+        p = (spent / cap * 100) if cap else 0
+        s = f"{p:.2f}"
+        s = s.rstrip("0").rstrip(".")
+        return s
+
+    def _budget_str(spent: float, cap: float) -> str:
+        return f"${spent:.2f} / ${cap:.2f} ({_pct(spent, cap)}%)"
+
+    budget = cfg.max_monthly_budget_usd
+    console.print("[bold]🧪 Crilio Test Runner[/]")
+    if budget is not None:
+        console.print(f"Budget: {_budget_str(0, budget)}")
     console.print(f"[dim]Found {len(cfg.tests)} test(s)...[/]")
     console.print()
 
@@ -275,6 +287,8 @@ def run(
     total_cost = 0.0
     total_input_tokens = 0
     total_output_tokens = 0
+    budget_exceeded = False
+    stopped_early = False
 
     for idx, test in enumerate(cfg.tests, 1):
         tgt_provider, judge_provider = resolve_for_test(
@@ -322,7 +336,7 @@ def run(
                 total_fail += 1
             results.append(per_test)
             if not json_output:
-                _render_test_simple(idx, per_test)
+                _render_test_simple(idx, per_test, budget, total_cost)
                 _render_test(console, per_test, verbose)
             continue
 
@@ -353,14 +367,21 @@ def run(
         total_input_tokens += per_test["input_tokens"]
         total_output_tokens += per_test["output_tokens"]
         if not json_output:
-            _render_test_simple(idx, per_test)
+            _render_test_simple(idx, per_test, budget, total_cost)
             _render_test(console, per_test, verbose)
+        if budget is not None and total_cost > budget:
+            budget_exceeded = True
+            stopped_early = True
+            if not json_output:
+                console.print(f"[red]Budget exceeded: {_budget_str(total_cost, budget)} — stopping. {len(cfg.tests)-idx} test(s) skipped.[/]")
+            break
 
     elapsed = time.perf_counter() - t_start
     gate_passed = total_fail == 0
+    if budget is not None and total_cost > budget:
+        budget_exceeded = True
 
     if json_output:
-        budget_exceeded = cfg.budget_usd is not None and total_cost > cfg.budget_usd
         gate_passed = gate_passed and not budget_exceeded
         payload = {
             "gate": "PASS" if gate_passed else "FAIL",
@@ -372,23 +393,27 @@ def run(
                 "input_tokens": total_input_tokens,
                 "output_tokens": total_output_tokens,
                 "cost_usd": round(total_cost, 6),
-                "budget_usd": cfg.budget_usd,
+                "max_monthly_budget_usd": budget,
                 "budget_exceeded": budget_exceeded,
+                "stopped_early": stopped_early,
             },
             "tests": results,
         }
         console.print_json(data=payload)
     else:
-        budget_exceeded = cfg.budget_usd is not None and total_cost > cfg.budget_usd
         gate_passed = gate_passed and not budget_exceeded
         _render_summary(gate_passed, total_pass, total_fail, elapsed, budget_exceeded)
-        budget_text = f" / ${cfg.budget_usd:.4f} budget" if cfg.budget_usd is not None else ""
-        console.print(
-            f"[dim]Usage: {total_input_tokens + total_output_tokens:,} tokens • "
-            f"estimated cost ${total_cost:.6f}{budget_text}[/]"
-        )
-        if budget_exceeded:
-            console.print(f"[red]Budget exceeded: ${total_cost:.6f} > ${cfg.budget_usd:.6f}[/]")
+        if budget is not None:
+            console.print(f"Final Budget: {_budget_str(total_cost, budget)}")
+            remaining = max(0, budget - total_cost)
+            console.print(f"Remaining: ${remaining:.2f}")
+            if stopped_early:
+                console.print(f"[yellow]Stopped early — budget exceeded after {len(results)}/{len(cfg.tests)} tests[/]")
+        else:
+            console.print(
+                f"[dim]Usage: {total_input_tokens + total_output_tokens:,} tokens • "
+                f"estimated cost ${total_cost:.6f}[/]"
+            )
 
     gha_enabled = pathlib.Path(".github/workflows/crilio.yml").exists() or os.getenv("GITHUB_ACTIONS") == "true"
     if not gha_enabled:
@@ -398,10 +423,69 @@ def run(
     raise typer.Exit(0 if gate_passed else 1)
 
 
-def _render_test_simple(idx: int, test: dict):
-    status = "✅ PASSED" if test["passed"] else "❌ FAILED"
-    console.print(f"\n[bold]Test {idx}: {test['name']}[/]")
-    console.print(f"   Status: {status}")
+@app.command()
+def validate(
+    config: str = typer.Option("crilio.yaml", "--config", "-c", help="Path to crilio.yaml"),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
+):
+    """Validate configuration without calling provider APIs."""
+    try:
+        cfg = load_config(config)
+        provider = resolve_provider(
+            provider=cfg.provider,
+            model=cfg.model,
+            judge_model=cfg.judge_model,
+            base_url=cfg.base_url,
+        )
+    except FileNotFoundError as error:
+        message = str(error)
+        if json_output:
+            console.print_json(data={"valid": False, "error": message})
+        else:
+            err_console.print(f"[red]✗ {message}[/]")
+            err_console.print("Run [cyan]crilio init[/] to create one.")
+        raise typer.Exit(2)
+    except Exception as error:
+        message = str(error)
+        if json_output:
+            console.print_json(data={"valid": False, "error": message})
+        else:
+            err_console.print(f"[red]✗ Configuration invalid[/]\n\n  {message}")
+        raise typer.Exit(2)
+
+    n_tests = len(cfg.tests)
+    n_rules = sum(len(test.rules) for test in cfg.tests)
+    budget = cfg.max_monthly_budget_usd
+    result = {
+        "valid": True,
+        "config": config,
+        "provider": provider.name,
+        "model": provider.model,
+        "judge_model": provider.judge_model,
+        "tests": n_tests,
+        "rules": n_rules,
+        "max_monthly_budget_usd": budget,
+    }
+    if json_output:
+        console.print_json(data=result)
+    else:
+        budget_text = f"${budget:.2f}" if budget is not None else "not configured"
+        console.print("[green]✓ Configuration valid[/]")
+        console.print(f"  Provider: {provider.name}")
+        console.print(f"  Target model: {provider.model}")
+        console.print(f"  Judge model: {provider.judge_model}")
+        console.print(f"  Tests: {n_tests}")
+        console.print(f"  Rules: {n_rules}")
+        console.print(f"  Budget: {budget_text}")
+        if budget is not None:
+            console.print(f"  Remaining on fresh run: ${budget:.2f}")
+    raise typer.Exit(0)
+
+
+def _render_test_simple(idx: int, test: dict, budget: float | None = None, spent: float = 0):
+    status = "✅" if test["passed"] else "❌"
+    cost = test.get("cost_usd", 0)
+    console.print(f"\n[bold]Test {idx}: {test['name']} {status} (${cost:.2f})[/]")
     if not test["passed"]:
         for r in test["rules"]:
             if not r["passed"]:
@@ -410,6 +494,10 @@ def _render_test_simple(idx: int, test: dict):
     else:
         console.print(f"   Reason: All {len(test['rules'])} rules passed")
     console.print(f"   [dim]{test['provider']}/{test['model']} • {test['latency_ms']}ms[/]")
+    if budget is not None:
+        pct = (spent / budget * 100) if budget else 0
+        pct_s = f"{pct:.2f}".rstrip("0").rstrip(".")
+        console.print(f"   → Budget: ${spent:.2f} / ${budget:.2f} ({pct_s}%)")
 
 
 def _render_test(console: Console, test: dict, verbose: bool):
