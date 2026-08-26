@@ -7,6 +7,8 @@ import sys
 import time
 from typing import Optional
 
+import requests
+
 import typer
 from rich.console import Console
 from rich.panel import Panel
@@ -83,6 +85,42 @@ def _show_homepage():
     else:
         c.print("[dim]  Provider key: [red]○ missing[/] → set OPENAI_API_KEY or ANTHROPIC_API_KEY (.env / GitHub Secrets)[/]")
     c.print()
+
+
+def _post_github_pr_comment(test_name: str, rule_broken: str, ai_response: str, reason: str):
+    """
+    Posts a formatted comment to the GitHub PR if running in GitHub Actions.
+    Fails silently to ensure CLI resilience.
+    """
+    if os.getenv("GITHUB_ACTIONS") != "true":
+        return
+    token = os.getenv("GITHUB_TOKEN")
+    repo = os.getenv("GITHUB_REPOSITORY")
+    ref = os.getenv("GITHUB_REF", "")
+    if not all([token, repo, ref]):
+        return
+    try:
+        pr_number = ref.split("/")[2]
+    except IndexError:
+        return
+    url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
+    headers = {
+        "Authorization": f"token {token}",
+        "Accept": "application/vnd.github.v3+json"
+    }
+    body = (
+        f"### 🛑 Crilio AI Test Failed\n\n"
+        f"**Test:** {test_name}\n"
+        f"**Rule Broken:** {rule_broken}\n\n"
+        f"**AI Response:**\n> {ai_response}\n\n"
+        f"**Reason:** {reason}\n\n"
+        f"_Please fix your prompt before merging._"
+    )
+    payload = {"body": body}
+    try:
+        requests.post(url, json=payload, headers=headers, timeout=5)
+    except Exception:
+        console.print("[grey50]Warning: Failed to post GitHub PR comment.[/grey50]")
 
 
 def version_callback(value: bool):
@@ -362,6 +400,10 @@ def run(
             if not json_output:
                 _render_test_simple(idx, per_test, budget, total_cost)
                 _render_test(console, per_test, verbose)
+                if not per_test["passed"]:
+                    for r in per_test["rules"]:
+                        if not r["passed"]:
+                            _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
             continue
 
         try:
@@ -393,6 +435,10 @@ def run(
         if not json_output:
             _render_test_simple(idx, per_test, budget, total_cost)
             _render_test(console, per_test, verbose)
+            if not per_test["passed"]:
+                for r in per_test["rules"]:
+                    if not r["passed"]:
+                        _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
         if budget is not None and total_cost > budget:
             budget_exceeded = True
             stopped_early = True
