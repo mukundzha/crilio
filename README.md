@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="./readme_logo-.png" alt="Crilio" width="180" />
+<img src="./readme_logo-.png" alt="Crilio" width="170" />
 
 # crilio
 
