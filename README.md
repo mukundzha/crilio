@@ -1,13 +1,16 @@
-<p align="center">
-  <h1 align="center">crilio</h1>
-  <p align="center"><strong>The CI/CD quality gate for AI — pytest for prompts.</strong></p>
+<div align="center">
+
+<img src="./remove_bg.png" alt="Crilio" width="180" />
+
+# crilio
+
+**The CI/CD quality gate for AI — pytest for prompts.**
   <p align="center">
     <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/v/crilio?style=flat-square&label=PyPI&color=black" alt="PyPI"/></a>
     <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/pyversions/crilio?style=flat-square&label=python&color=black" alt="Python"/></a>
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-black?style=flat-square" alt="License"/></a>
-    <img src="https://img.shields.io/badge/coverage-gate_pass%2Ffail-black?style=flat-square" alt="Gate"/>
   </p>
-</p>
+</div>
 
 ---
 
@@ -18,10 +21,9 @@
 ### ✨ Features
 
 - **LLM-as-a-Judge** — Strict Pydantic-verified verdicts (`rule_passed: bool`), temp 0. No flaky free-text parsing.
-- **BYOK** — Your keys, your bill. Works with OpenAI & Anthropic. ~$0.002 / test on `gpt-4o-mini`.
+- **BYOK** — Your keys, your bill. OpenAI + Anthropic. Typically < $0.01 / test on `gpt-4o-mini`.
 - **CI/CD Native** — `exit 1` blocks PRs in GitHub Actions. Locally it warns but never blocks.
-- **Budget Guard** — `max_monthly_budget_usd` halts the run when cost exceeds cap. Remove it for unlimited.
-
+- **Budget Guard** — `max_monthly_budget_usd` halts the run when cost exceeds cap. Delete the line or leave it blank for unlimited.
 ---
 
 ### 🚀 Quick Start
@@ -62,7 +64,7 @@ Provider is inferred from env if not set in `crilio.yaml`. Keys are **never** fl
 settings:
   target_model: gpt-4o
   judge_model: gpt-4o-mini
-  max_monthly_budget_usd: 10.0  # delete line for unlimited
+  max_monthly_budget_usd: 10.0  # delete or leave blank for unlimited
 
 tests:
   - name: Refund Policy Check
