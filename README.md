@@ -1,7 +1,16 @@
 <div align="center">
-<img src="./readme_logo-.png" alt="Crilio" width="170" />
+<img src="./assests/readme_logo.png" alt="Crilio" width="170" />
 <h1 style="margin: -4px 0 0 0;">crilio</h1>
 <p style="margin: 6px 0 0 0;"><strong>The CI/CD quality gate for AI — pytest for prompts.</strong></p>
+
+<div align="center">
+  <a href="https://github.com/mukundzha/crilio">
+    <img src="https://img.shields.io/github/stars/mukundzha/crilio?style=social" alt="GitHub Stars">
+  </a>
+  <br>
+  <sub><i>If Crilio helps you, please ⭐ star this repo. It helps other devs find it and motivates me to keep building.</i></sub>
+</div>
+
   <p align="center">
     <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/v/crilio?style=flat-square&label=PyPI&color=black" alt="PyPI"/></a>
     <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/pyversions/crilio?style=flat-square&label=python&color=black" alt="Python"/></a>
