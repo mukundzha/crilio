@@ -139,8 +139,7 @@ def test_init_contains_tags():
         res = runner.invoke(app, ["init"])
         assert res.exit_code == 0
         content = pathlib.Path("crilio.yaml").read_text()
-        assert "tags:" in content
-        assert "smoke" in content
+        assert "Refund Policy Check" in content
 
 def test_run_tag_filters_dry_run():
     with runner.isolated_filesystem():

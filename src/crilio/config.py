@@ -143,7 +143,6 @@ tests:
     rules:
       - "Must mention the 30-day return window."
       - "Must NOT mention competitor names."
-    tags: ["smoke", "critical"]
 
   - name: "JSON Format Check"
     prompt: |
