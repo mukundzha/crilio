@@ -3,11 +3,9 @@
 <h1 style="margin: -4px 0 0 0;">crilio</h1>
 <p style="margin: 6px 0 0 0;"><strong>The CI/CD quality gate for AI — pytest for prompts.</strong></p>
 
-<div align="center">
-  <sub>If Crilio helps you, please ⭐ star this repo. It helps other devs find it and motivates me to keep building.</sub>
-</div>
+<p style="margin: 12px 0 0 0; font-size: 14px;">If Crilio helps you, please ⭐ <a href="https://github.com/mukundzha/crilio"><strong>star this repo</strong></a> — it helps other devs find it and motivates me to keep building.</p>
 
-  <p align="center">
+  <p align="center" style="margin-top: 14px;">
     <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/v/crilio?style=flat-square&label=PyPI&color=black" alt="PyPI"/></a>
     <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/pyversions/crilio?style=flat-square&label=python&color=black" alt="Python"/></a>
     <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-black?style=flat-square" alt="License"/></a>
