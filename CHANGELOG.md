@@ -7,11 +7,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 ## [Unreleased]
 
 ### Changed
-- Redesigned `README.md` — centered hero with logo, cleaner spacing, and verified documentation
-- Moved logo asset to `assests/readme_logo.png` for cleaner repo root
+- TBD
+
+## [0.0.3] - 2026-08-26
 
 ### Added
-- Star CTA under hero tagline to encourage community support
+- **`--tag` filtering for `crilio run`** — `crilio run --tag smoke` runs only tests with `tags: ["smoke"]`; `tags` is optional per-test, no flag = all tests, missing tags = skipped when filtered; `DEFAULT_CONFIG_YAML` now includes `tags: ["smoke", "critical"]` example; `README` + `docs.py` updated
+- **GitHub PR Commenter** — when `GITHUB_ACTIONS=="true"` and a rule fails, auto-posts `🛑 Crilio AI Test Failed` comment via `GITHUB_TOKEN` / `GITHUB_REPOSITORY` / `GITHUB_REF` (`refs/pull/12/merge` → `12`); 5s timeout, silent fail on 401/timeout/bad ref, never logs token, never blocks gate/exit code; requires `permissions: pull-requests: write` + `GITHUB_TOKEN` in workflow
+- **Tests** — 13 new tests: config `tags` parsing, `init` tags, dry-run tag filtering/no-match/skip, PR commenter noop/posts/resilience/bad-ref/missing-env/never-logs-token + integration `run` failure posts comment
+
+### Changed
+- `README` features + CI workflow note PR comments; `docs.py` §8 updated with permissions + failure comment example
+- `src/crilio/config.py` `TestCase` now supports `tags: Optional[list[str]]`
 
 ## [0.0.2] - 2026-08-25
 
@@ -38,6 +45,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 - GitHub Actions workflow template on `pull_request`
 - License AGPL-3.0-only
 
-[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.2...HEAD
+[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.3...HEAD
+[0.0.3]: https://github.com/mukundzha/crilio/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/mukundzha/crilio/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/mukundzha/crilio/releases/tag/v0.0.1
