@@ -5,6 +5,8 @@
 
 <p style="margin: 12px 0 0 0; font-size: 14px;">If Crilio helps you, please ⭐ <a href="https://github.com/mukundzha/crilio"><strong>star this repo</strong></a> — it helps other devs find it and motivates me to keep building.</p>
 
+<p style="margin: 6px 0 0 0; font-size: 14px;">☁️ <a href="https://tally.so/r/0QRj4j">Join the Crilio Cloud Waitlist</a> (Get 40% off team dashboards & analytics when we launch)</p>
+
   <p align="center" style="margin-top: 14px;">
     <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/v/crilio?style=flat-square&label=PyPI&color=black" alt="PyPI"/></a>
     <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/pyversions/crilio?style=flat-square&label=python&color=black" alt="Python"/></a>
