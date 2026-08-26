@@ -1,10 +1,7 @@
 <div align="center">
-
 <img src="./readme_logo-.png" alt="Crilio" width="170" />
-
-# crilio
-
-**The CI/CD quality gate for AI — pytest for prompts.**
+<h1 style="margin: 6px 0 0 0;">crilio</h1>
+<p style="margin: 6px 0 0 0;"><strong>The CI/CD quality gate for AI — pytest for prompts.</strong></p>
   <p align="center">
     <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/v/crilio?style=flat-square&label=PyPI&color=black" alt="PyPI"/></a>
     <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/pyversions/crilio?style=flat-square&label=python&color=black" alt="Python"/></a>
