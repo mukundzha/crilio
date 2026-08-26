@@ -1,72 +1,68 @@
-# Crilio
+<p align="center">
+  <h1 align="center">crilio</h1>
+  <p align="center"><strong>The CI/CD quality gate for AI — pytest for prompts.</strong></p>
+  <p align="center">
+    <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/v/crilio?style=flat-square&label=PyPI&color=black" alt="PyPI"/></a>
+    <a href="https://pypi.org/project/crilio/"><img src="https://img.shields.io/pypi/pyversions/crilio?style=flat-square&label=python&color=black" alt="Python"/></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-black?style=flat-square" alt="License"/></a>
+    <img src="https://img.shields.io/badge/coverage-gate_pass%2Ffail-black?style=flat-square" alt="Gate"/>
+  </p>
+</p>
 
-**The CI/CD quality gate for AI — pytest for prompts.**
+---
 
-Crilio stops prompt regressions from reaching production. You version a `crilio.yaml` of prompts + natural-language rules, Crilio calls your model (BYOK), judges the response with another model, and reports `PASS / FAIL` per rule. Failures block PRs in GitHub Actions — locally they just report.
+**Crilio stops prompt regressions from reaching production.** Version your prompts + natural-language rules in `crilio.yaml` — Crilio calls your model, judges every response with an LLM, and reports `PASS / FAIL` per rule.
 
-## Quick Start
+---
+
+### ✨ Features
+
+- **LLM-as-a-Judge** — Strict Pydantic-verified verdicts (`rule_passed: bool`), temp 0. No flaky free-text parsing.
+- **BYOK** — Your keys, your bill. Works with OpenAI & Anthropic. ~$0.002 / test on `gpt-4o-mini`.
+- **CI/CD Native** — `exit 1` blocks PRs in GitHub Actions. Locally it warns but never blocks.
+- **Budget Guard** — `max_monthly_budget_usd` halts the run when cost exceeds cap. Remove it for unlimited.
+
+---
+
+### 🚀 Quick Start
 
 ```bash
-pip install crilio 
+pip install crilio
 
-export OPENAI_API_KEY="sk-proj-..."   # or ANTHROPIC_API_KEY
-# .env also works — never commit it
-
-crilio init                            # creates crilio.yaml (default max_monthly_budget_usd: 10.0)
-crilio run --dry-run                   # validate without API calls
-crilio run                             # Target → Judge → gate
+export OPENAI_API_KEY="sk-proj-..."  # or ANTHROPIC_API_KEY — .env also works
+crilio init                          # creates crilio.yaml
+crilio run --dry-run                 # validate without API calls
+crilio run                           # Target → Judge → gate
 ```
 
-`crilio` with no args shows status, budget, and next steps.
+> `crilio` with no args shows status, budget, and next steps.
 
-## Usage
+---
 
-```
-crilio init      [--force] [--yes]
-crilio run       [-c crilio.yaml] [-m gpt-4o] [--judge-model gpt-4o-mini] [--verbose] [--json] [--dry-run]
-crilio validate  [-c crilio.yaml] [--json]
-crilio --version
-crilio --docs    # full interactive guide
-```
+### ⚙️ Usage
 
-- `init`: creates `crilio.yaml`. `--force` overwrites; if `.github/workflows/crilio.yml` exists and `--force`, you’re asked `replace it? y/n`. `--yes` for CI (skips GHA prompt).
-- `run`: executes the gate. `exit 0` pass, `exit 1` fail (only when `GITHUB_ACTIONS=true` or workflow exists — locally a failed gate warns but doesn’t block).
-- `validate`: checks config/provider/models/rules/budget without API calls. `exit 0` valid, `2` invalid.
-- `--dry-run` on `run` validates config + provider without calling models. `--json` emits machine-readable output, `--verbose` shows full responses.
+| Command | Description |
+|---|---|
+| `crilio init [--force] [--yes]` | Create `crilio.yaml` + optional GitHub Actions workflow |
+| `crilio run [-c FILE] [-m MODEL] [--judge-model MODEL] [--verbose] [--json] [--dry-run]` | Run gate — `0` pass, `1` fail (only in CI) |
+| `crilio validate [-c FILE] [--json]` | Validate config without API calls — `0` valid, `2` invalid |
+| `crilio --version` / `crilio --docs` | Version / full interactive guide |
 
-Provider keys are **never** a flag — use env:
+| Variable | Description |
+|---|---|
+| `OPENAI_API_KEY` | OpenAI — default target `gpt-4o-mini`, judge `gpt-4o-mini` |
+| `ANTHROPIC_API_KEY` | Anthropic — default target `claude-3-5-sonnet-latest`, judge `claude-3-5-haiku-latest` |
 
-| Provider | Env | Default target | Default judge |
-|---|---|---|---|
-| `openai` | `OPENAI_API_KEY` | `gpt-4o-mini` | `gpt-4o-mini` |
-| `anthropic` | `ANTHROPIC_API_KEY` | `claude-3-5-sonnet-latest` | `claude-3-5-haiku-latest` |
+Provider is inferred from env if not set in `crilio.yaml`. Keys are **never** flags — env only.
 
-`provider` is inferred from env if not set in `crilio.yaml`.
-
-### Budget gate
-
-`settings.max_monthly_budget_usd: 10.0` is the monthly cap. Every test prints:
-
-```
-🧪 Crilio Test Runner
-Budget: $0.00 / $10.00 (0%)
-Test 1: Refund Policy ✅ ($0.06)
-   → Budget: $0.06 / $10.00 (0.6%)
-Final Budget: $0.18 / $10.00 (1.8%)
-Remaining: $9.82
-```
-
-If `total_cost > max_monthly_budget_usd`, the run stops immediately, shows only completed tests, and fails the gate. Remove the line (or leave it blank `max_monthly_budget_usd:`) for no limit. Costs are estimated from published per-million-token prices; unknown models count as `$0`.
-
-## Examples
-
-Minimal `crilio.yaml`:
+<details>
+<summary><strong>crilio.yaml</strong></summary>
 
 ```yaml
 settings:
   target_model: gpt-4o
   judge_model: gpt-4o-mini
-  max_monthly_budget_usd: 10.0
+  max_monthly_budget_usd: 10.0  # delete line for unlimited
 
 tests:
   - name: Refund Policy Check
@@ -74,11 +70,7 @@ tests:
     rules:
       - Must mention the 30-day return window.
       - Must NOT mention competitor names.
-```
 
-JSON enforcement:
-
-```yaml
   - name: JSON Format Check
     prompt: |
       Return ONLY this JSON and nothing else: {"status": "shipped", "order_id": "12345"}
@@ -87,52 +79,15 @@ JSON enforcement:
       - Must NOT include apologies or extra prose.
 ```
 
-Run variants:
+Per-test overrides: `provider`, `model`, `judge_model`, `system` can be set per test.
 
-```bash
-crilio run --dry-run --json
-crilio run -c tests/crilio.yaml --model gpt-4o --verbose
-crilio validate --json
-crilio run --json > results.json
-```
+</details>
 
-Per-test overrides (advanced):
+---
 
-```yaml
-tests:
-  - name: Anthropic smoke
-    provider: anthropic
-    model: claude-3-5-sonnet-latest
-    judge_model: claude-3-5-haiku-latest
-    prompt: Say hello
-    rules: [Must contain hello]
-```
+### 🔄 CI/CD Integration
 
-## Configuration
-
-```yaml
-provider: openai              # optional, inferred from env
-model: gpt-4o-mini
-judge_model: gpt-4o-mini
-base_url: https://api.openai.com/v1
-system: You are helpful...    # global system prompt
-settings:
-  target_model: gpt-4o
-  judge_model: gpt-4o-mini
-  max_monthly_budget_usd: 10.0 # delete line for unlimited
-tests:
-  - name: "unique name"       # must be unique
-    prompt: "..."
-    system: "..."             # optional per-test override
-    provider/model/judge_model: ... # optional per-test override
-    rules:
-      - Must mention X.
-      - Must NOT mention Y.  # Judge is literal, temp 0. One idea per rule, 2-5 per test.
-```
-
-## GitHub Actions
-
-`crilio init` (interactive) can create `.github/workflows/crilio.yml`:
+`crilio init` can scaffold this for you. Or drop in `.github/workflows/crilio.yml`:
 
 ```yaml
 name: Crilio AI Tests
@@ -153,18 +108,8 @@ jobs:
 
 Add the secret matching your provider. A `FAIL` gate exits `1` and blocks the PR.
 
-## Development
+---
 
-```bash
-git clone https://github.com/crilio/crilio && cd crilio
-python -m venv .venv && source .venv/bin/activate
-pip install -e . && pip install pytest
-pytest -q
-crilio run --dry-run
-```
+### 📄 License
 
-## Notes
-
-- BYOK — you pay the provider directly (~$0.002/test on `gpt-4o-mini`). No hosted eval platform.
-- Judge uses `instructor` + Pydantic for strict JSON (`rule_passed: bool`), eliminating flaky free-text verdicts.
-- `crilio init --force` asks before overwriting an existing workflow; `crilio run` without GHA never hard-fails the shell.
+AGPL-3.0 — see [LICENSE](./LICENSE).
