@@ -25,6 +25,7 @@
 - **LLM-as-a-Judge** — Strict Pydantic-verified verdicts (`rule_passed: bool`), temp 0. No flaky free-text parsing.
 - **BYOK** — Your keys, your bill. OpenAI + Anthropic. Typically < $0.01 / test on `gpt-4o-mini`.
 - **CI/CD Native** — `exit 1` blocks PRs in GitHub Actions. Locally it warns but never blocks.
+- **PR Comments** — Auto-posts formatted failure details to the PR when running in Actions (`GITHUB_TOKEN`, silent fail, never blocks gate).
 - **Budget Guard** — `max_monthly_budget_usd` halts the run when cost exceeds cap. Delete the line or leave it blank for unlimited.
 ---
 
@@ -109,9 +110,10 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # for PR failure comments (auto-provided)
 ```
 
-Add the secret matching your provider. A `FAIL` gate exits `1` and blocks the PR.
+Add the secret matching your provider. A `FAIL` gate exits `1` and blocks the PR. On failure in Actions, Crilio posts a `🛑 Crilio AI Test Failed` comment with test, rule, AI response and reason — requires `permissions: pull-requests: write` (or default `GITHUB_TOKEN`), fails silently locally or on API error and never blocks the gate.
 
 ---
 

@@ -183,6 +183,8 @@ on: [pull_request]
 jobs:
   crilio:
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write  # for PR failure comments
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -193,11 +195,11 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # auto-provided for PR comments
 ```
 
 `crilio init` asks whether to create this workflow when run interactively. Add
-the secret matching your configured provider. The workflow blocks the pull request when `crilio run` exits 1. There is no bundled
-`action.yml` or PR-comment integration.
+the secret matching your configured provider. The workflow blocks the pull request when `crilio run` exits 1. On failure in Actions, Crilio auto-posts a `🛑 Crilio AI Test Failed` comment (test / rule / AI response / reason) via `GITHUB_TOKEN` + `GITHUB_REPOSITORY` / `GITHUB_REF` (`refs/pull/12/merge` → `12`) — silent fail on API error (timeout/401) and locally, never blocks the gate.
 
 ---
 
