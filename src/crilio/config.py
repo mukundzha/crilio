@@ -30,6 +30,7 @@ class TestCase(BaseModel):
     provider: Optional[ProviderName] = None
     model: Optional[str] = None
     judge_model: Optional[str] = None
+    tags: Optional[list[str]] = None
 
     @field_validator("rules")
     @classmethod
@@ -142,6 +143,7 @@ tests:
     rules:
       - "Must mention the 30-day return window."
       - "Must NOT mention competitor names."
+    tags: ["smoke", "critical"]
 
   - name: "JSON Format Check"
     prompt: |

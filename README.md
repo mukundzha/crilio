@@ -48,7 +48,7 @@ crilio run                           # Target → Judge → gate
 | Command | Description |
 |---|---|
 | `crilio init [--force] [--yes]` | Create `crilio.yaml` + optional GitHub Actions workflow |
-| `crilio run [-c FILE] [-m MODEL] [--judge-model MODEL] [--verbose] [--json] [--dry-run]` | Run gate — `0` pass, `1` fail (only in CI) |
+| `crilio run [-c FILE] [-m MODEL] [--judge-model MODEL] [--verbose] [--json] [--dry-run] [--tag TAG]` | Run gate — `0` pass, `1` fail (only in CI) · `--tag` filters to `tags: [TAG]` tests |
 | `crilio validate [-c FILE] [--json]` | Validate config without API calls — `0` valid, `2` invalid |
 | `crilio --version` / `crilio --docs` | Version / full interactive guide |
 
@@ -74,6 +74,7 @@ tests:
     rules:
       - Must mention the 30-day return window.
       - Must NOT mention competitor names.
+    tags: ["smoke", "critical"]
 
   - name: JSON Format Check
     prompt: |
@@ -83,7 +84,7 @@ tests:
       - Must NOT include apologies or extra prose.
 ```
 
-Per-test overrides: `provider`, `model`, `judge_model`, `system` can be set per test.
+Per-test overrides: `provider`, `model`, `judge_model`, `system`, `tags` can be set per test. Use `crilio run --tag smoke` to run only tagged tests.
 
 </details>
 

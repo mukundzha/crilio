@@ -107,6 +107,7 @@ tests:
       - "Must mention the 30-day return window."
       - "Must NOT mention competitor names like Amazon or Walmart."
       - "Tone must be polite and professional."
+    tags: ["smoke", "critical"]
 
   - name: "JSON Format Check"
     prompt: |
@@ -123,7 +124,8 @@ Keys:
 - `system`: global system prompt (passed to Target); per-test `system` overrides
 - `tests[].name` must be unique
 - `tests[].rules` are natural language — Judge is literal. Use `Must` / `Must NOT`.
-- Per-test `provider/model/judge_model/system` overrides global (advanced, needs its own key).
+- `tests[].tags` optional list — filter with `crilio run --tag smoke`
+- Per-test `provider/model/judge_model/system/tags` overrides global (advanced, needs its own key).
 
 
 ---
@@ -134,7 +136,7 @@ Keys:
 |---|---|---|
 | `crilio init` | Create `crilio.yaml` + optionally `.github/workflows/crilio.yml` | `--yes` `--force` |
 | `crilio validate` | Validate config without calling APIs | `-c --config` `--json` |
-| `crilio run` | Run gate: Target → Judge → report → exit 0/1 | `-c --config` `--model` `--judge-model` `--verbose` `--json` `--dry-run` |
+| `crilio run` | Run gate: Target → Judge → report → exit 0/1 | `-c --config` `--model` `--judge-model` `--verbose` `--json` `--dry-run` `--tag` |
 | `crilio --docs` | Show this guide | — |
 
 Key is **never** a flag — use `export OPENAI_API_KEY=sk-...` (see Step 2). No `--api-key`.

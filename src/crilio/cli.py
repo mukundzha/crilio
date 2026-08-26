@@ -216,6 +216,7 @@ def run(
     verbose: bool = typer.Option(False, "--verbose", help="Show full responses"),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate config without calling APIs"),
+    tag: Optional[str] = typer.Option(None, "--tag", help="Only run tests with the specified tag."),
 ):
     """Run the quality gate: Target → Judge → pass/fail."""
     t_start = time.perf_counter()
@@ -229,6 +230,14 @@ def run(
     except Exception as e:
         err_console.print(f"[red]Invalid config {config}: {e}[/]")
         raise typer.Exit(2)
+
+    if tag:
+        original_count = len(cfg.tests)
+        cfg.tests = [test for test in cfg.tests if tag in (test.tags or [])]
+        if not cfg.tests:
+            console.print(f"[yellow]No tests found with tag '{tag}'. Running 0 tests.[/yellow]")
+            raise typer.Exit(0)
+        console.print(f"[grey]Filtering by tag '{tag}': Running {len(cfg.tests)} of {original_count} tests.[/grey]")
 
     from crilio.provider import infer_provider_from_env
 
