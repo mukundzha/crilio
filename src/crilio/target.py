@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import shlex
+import shutil
+import subprocess
 import time
 from dataclasses import dataclass
 
@@ -81,3 +84,60 @@ def call_target(
                 continue
             raise
     raise RuntimeError(f"target call failed: {last_err}") from last_err
+
+
+def call_target_command(
+    template: str,
+    prompt: str,
+    timeout: int = 30,
+) -> TargetResult:
+    if not template or not template.strip():
+        raise ValueError("target.command must not be empty")
+    t0 = time.perf_counter()
+    try:
+        if "{{prompt}}" in template:
+            cmd = template.replace("'{{prompt}}'", shlex.quote(prompt))
+            cmd = cmd.replace('"{{prompt}}"', shlex.quote(prompt))
+            cmd = cmd.replace("{{prompt}}", shlex.quote(prompt))
+            proc = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        else:
+            parts = shlex.split(template)
+            if not parts:
+                raise ValueError("target.command is empty")
+            if shutil.which(parts[0]) is None:
+                raise FileNotFoundError(f"command not found: {parts[0]}")
+            proc = subprocess.run(
+                parts,
+                input=prompt,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+        latency = int((time.perf_counter() - t0) * 1000)
+        if proc.returncode != 0:
+            err = (proc.stderr or proc.stdout or "").strip()[:500]
+            raise RuntimeError(f"command failed (exit {proc.returncode}): {err}")
+        out = (proc.stdout or "").strip()
+        if not out:
+            out = "[empty]"
+        return TargetResult(
+            response=out,
+            latency_ms=latency,
+            model="command",
+            usage=Usage(0, 0),
+            cost_usd=0.0,
+        )
+    except subprocess.TimeoutExpired as e:
+        raise RuntimeError(f"command timed out after {timeout}s: {e}") from e
+    except FileNotFoundError:
+        raise
+    except Exception as e:
+        if isinstance(e, RuntimeError):
+            raise
+        raise RuntimeError(f"command execution failed: {e}") from e

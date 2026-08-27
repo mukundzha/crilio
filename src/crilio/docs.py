@@ -36,12 +36,15 @@ Teams test this by pasting 5 prompts in a playground. Unscalable, unreviewable, 
 
 ```
 1. Contract  crilio.yaml  (prompt + rules)        → versioned, human-readable
-2. Target    BYOK chat.completions call          → sends prompt to YOUR model
+2. Target    BYOK chat.completions *or* `target: {command}` local → `python bot.py '{{prompt}}'` (stdout → Judge) or `ollama run llama3`
 3. Judge     LLM-as-a-Judge via instructor       → {"rule_passed": true/false} strict JSON
 4. Gate      Rich table ● PASS/FAIL per rule     → exit 0 PASS / 1 FAIL blocks CI
 ```
 
 Why strict `instructor`? LLMs ramble. Pydantic validation forces JSON, eliminates `mostly good → PASS` flakiness.
+
+- API Target: `provider: openai` + `model: gpt-4o-mini` → `call_target`
+- Local Target: `target: {command: "python bot.py '{{prompt}}'"}` → `call_target_command` (`{{prompt}}` → `shlex.quote`, no placeholder → stdin, `timeout 30s`, `$0`, injection-safe)
 
 ---
 
@@ -58,14 +61,21 @@ export ANTHROPIC_API_KEY="sk-ant-xxxxx..."
 # → add to .env locally, and the matching GitHub Secret for CI
 
 # Step 3: Initialize config
-crilio init                         # creates crilio.yaml with dummy test
-
+crilio init                         # creates crilio.yaml (tag-free minimal)
 cat crilio.yaml
 
 # Step 4: Run locally
 crilio run --dry-run                # validate without API
 crilio run                          # Target → Judge → ✅/❌ gate
+crilio run --tag smoke              # only tags: ["smoke"]
+crilio run --tag local --verbose    # only local bots
 crilio run --verbose --json > results.json
+```
+
+Local bot example — `bot.py`:
+```bash
+python bot.py "How long to return?"              # argv
+echo "How long to return?" | python bot.py       # stdin
 ```
 
 `crilio --docs` shows this guide. `crilio --help` shows `init` + `run` only.
@@ -89,7 +99,7 @@ judge_model: gpt-4o-mini
 system: "You are helpful..."
 ```
 
-Example configuration:
+Full example (all features):
 
 ```yaml
 settings:
@@ -115,23 +125,32 @@ tests:
     rules:
       - "Must return valid JSON with keys 'status' and 'order_id'."
       - "Must NOT include apologies or extra prose."
+
+  - name: "Local Bot Check"
+    prompt: "How long do I have to return a product?"
+    target:
+      command: "python bot.py '{{prompt}}'"  # any CLI: ollama, vLLM, curl → stdout → Judge
+    rules:
+      - "Must mention the 30-day return window."
+    tags: ["local"]
 ```
 
 Keys:
+
 - `provider`: `openai` or `anthropic`
 - `model` / `judge_model`: override defaults
-- `settings.max_monthly_budget_usd`: monthly cap — run stops when exceeded, shows Budget: $spent / $cap (pct) after each test
+- `settings.max_monthly_budget_usd`: monthly cap — run stops when exceeded, shows `Budget: $spent / $cap (pct)` after each test
 - `system`: global system prompt (passed to Target); per-test `system` overrides
 - `tests[].name` must be unique
 - `tests[].rules` are natural language — Judge is literal. Use `Must` / `Must NOT`.
-- `tests[].tags` optional list — filter with `crilio run --tag smoke`
-- Per-test `provider/model/judge_model/system/tags` overrides global (advanced, needs its own key).
-- **Leak Guard:** `crilio.yaml` containing `sk-...` or `api_key:` fails `validate`/`run` (exit 2) — use `.env` / Secrets.
-
+- `tests[].tags` optional list — filter with `crilio run --tag smoke` (no flag = all, missing tags = skipped when filtered)
+- `tests[].target.command` — local CLI e.g. `python bot.py '{{prompt}}'` or `ollama run llama3 '{{prompt}}'`, `{{prompt}}` → `shlex.quote`, no placeholder → stdin pipe, `timeout 30s`, `$0` target, injection-safe
+- Per-test `provider/model/judge_model/system/tags/target` overrides global (advanced, needs its own key).
+- **Leak Guard:** `crilio.yaml` containing `sk-...` or `api_key:` fails `validate`/`run` (exit 2) — use `.env` / Secrets, never commit keys.
 
 ---
 
-## 5 · Commands — Only 2 (export method)
+## 5 · Commands
 
 | Command | What it does | Key flags |
 |---|---|---|
@@ -143,10 +162,13 @@ Keys:
 Key is **never** a flag — use `export OPENAI_API_KEY=sk-...` (see Step 2). No `--api-key`.
 
 Examples:
+
 ```bash
 export OPENAI_API_KEY=sk-proj-...   # Step 2
 crilio run --dry-run
 crilio run                          # 5 steps: read → target → judge → report → gate (only if GHA enabled)
+crilio run --tag smoke
+crilio run --tag local
 crilio run --model gpt-4o --verbose
 ```
 
@@ -159,7 +181,9 @@ crilio run --model gpt-4o --verbose
 | `openai` | `OPENAI_API_KEY=sk-...` | `gpt-4o` | `gpt-4o-mini` |
 | `anthropic` | `ANTHROPIC_API_KEY=...` | `claude-3-5-sonnet-latest` | `claude-3-5-haiku-latest` |
 
-`export` only — no `--api-key` flag. Add to `.env` locally, `GitHub Secrets → OPENAI_API_KEY` for CI (see Step 5 workflow `env: OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}`). BYOK — never stored by us, `.env` gitignored.
+Local bots need no target key — `target: {command}` → `$0`. Judge still needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY`.
+
+`export` only — no `--api-key` flag. Add to `.env` locally, `GitHub Secrets → OPENAI_API_KEY` for CI (see §8 workflow `env: OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}`). BYOK — never stored by us, `.env` gitignored.
 
 List models: `curl https://api.openai.com/v1/models -H "Authorization: Bearer $OPENAI_API_KEY"`
 
@@ -199,8 +223,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}  # auto-provided for PR comments
 ```
 
-`crilio init` asks whether to create this workflow when run interactively. Add
-the secret matching your configured provider. The workflow blocks the pull request when `crilio run` exits 1. On failure in Actions, Crilio auto-posts a `🛑 Crilio AI Test Failed` comment (test / rule / AI response / reason) via `GITHUB_TOKEN` + `GITHUB_REPOSITORY` / `GITHUB_REF` (`refs/pull/12/merge` → `12`) — silent fail on API error (timeout/401) and locally, never blocks the gate.
+`crilio init` asks whether to create this workflow when run interactively. Add the secret matching your configured provider. The workflow blocks the pull request when `crilio run` exits 1. On failure in Actions, Crilio auto-posts a `🛑 Crilio AI Test Failed` comment (test / rule / AI response / reason) via `GITHUB_TOKEN` + `GITHUB_REPOSITORY` / `GITHUB_REF` (`refs/pull/12/merge` → `12`) — silent fail on API error (timeout/401) and locally, never blocks the gate.
 
 ---
 
@@ -208,13 +231,14 @@ the secret matching your configured provider. The workflow blocks the pull reque
 
 ```
 src/crilio/
-  cli.py      Typer + Rich (init/run/docs, gate, --json)
-  config.py   PyYAML → Pydantic (crilio.yaml)
-  setup.py    provider/key persistence helpers for integrations
-  provider.py openai resolution
-  target.py   BYOK chat.completions (system prompt, temperature 0)
+  cli.py      Typer + Rich (init/run/docs, gate, --json, --tag)
+  config.py   PyYAML → Pydantic (crilio.yaml, tags, target.command, leak guard)
+  setup.py    provider/key persistence helpers
+  provider.py openai/anthropic resolution
+  target.py   BYOK chat.completions + call_target_command (shlex, subprocess, timeout 30s)
   judge.py    instructor strict JudgeVerdict
   docs.py     this guide
+bot.py        Example local bot (argv or stdin → stdout)
 ```
 
 ---
@@ -227,17 +251,19 @@ python -m venv .venv && source .venv/bin/activate
 pip install -e . && pip install pytest
 pytest -v
 crilio run --dry-run
-crilio run   # needs OPENAI_API_KEY
+crilio run --tag smoke --dry-run
+crilio run   # needs OPENAI_API_KEY (Judge)
 ```
 
-Release: `python -m build && twine upload dist/*` → `pip install crilio`
+Release: `python -m build && twine upload dist/*` → `pip install crilio` (or `pypi.yml` trusted publishing on `release: published`)
 
 ---
 
 ## 11 · Cost & Roadmap
 
-- Judge ~$0.002/test (`gpt-4o-mini`), 10k tests ≈ $20 — you pay provider.
-- Roadmap: `target.command` (local bot), Cloud dashboard (history), Stripe license, self-hosted Judge.
+- Judge ~$0.002/test (`gpt-4o-mini`), 10k tests ≈ $20 — you pay provider. Local `target.command` → `$0` target cost.
+- **Shipped v0.0.4:** `--tag` filtering, `target.command` local bots, PR comments, leak guard.
+- Roadmap: Cloud dashboard (history), Stripe license, self-hosted Judge, `{{system}}` placeholder for local bots.
 
 ---
 

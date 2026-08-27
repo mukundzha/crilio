@@ -25,6 +25,17 @@ class Settings(BaseModel):
         return v
 
 
+class TargetCommand(BaseModel):
+    command: str = Field(..., min_length=1)
+
+    @field_validator("command")
+    @classmethod
+    def _validate_command(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("target.command must not be empty")
+        return v.strip()
+
+
 class TestCase(BaseModel):
     name: str = Field(..., min_length=1)
     prompt: str = Field(..., min_length=1)
@@ -34,6 +45,18 @@ class TestCase(BaseModel):
     model: Optional[str] = None
     judge_model: Optional[str] = None
     tags: Optional[list[str]] = None
+    target: Optional[TargetCommand] = None
+
+    @field_validator("target", mode="before")
+    @classmethod
+    def _coerce_target(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            if not v.strip():
+                raise ValueError("target command must not be empty")
+            return {"command": v}
+        return v
 
     @field_validator("rules")
     @classmethod

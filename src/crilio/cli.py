@@ -19,7 +19,7 @@ from crilio.__version__ import __version__
 from crilio.config import DEFAULT_CONFIG_YAML, CrilioConfig, load_config
 from crilio.judge import judge_rule
 from crilio.provider import PROVIDER_DEFAULTS, VALID_PROVIDERS, load_dotenv, make_client, resolve_for_test, resolve_provider
-from crilio.target import call_target
+from crilio.target import call_target, call_target_command
 
 app = typer.Typer(name="crilio", add_completion=False, no_args_is_help=False)
 console = Console()
@@ -353,58 +353,105 @@ def run(
     stopped_early = False
 
     for idx, test in enumerate(cfg.tests, 1):
-        tgt_provider, judge_provider = resolve_for_test(
-            global_provider=global_provider,
-            test_provider=test.provider,
-            test_model=test.model,
-            test_judge_model=test.judge_model,
-            cli_base_url=None,
-            cli_api_key=None,
-        )
-        per_test: dict = {
-            "name": test.name,
-            "prompt": test.prompt,
-            "provider": tgt_provider.name,
-            "model": tgt_provider.model,
-            "rules": [],
-            "response": "",
-            "passed": True,
-            "latency_ms": 0,
-            "input_tokens": 0,
-            "output_tokens": 0,
-            "cost_usd": 0.0,
-        }
-        try:
-            tgt_client = make_client(tgt_provider)
-            target_res = call_target(tgt_client, provider=tgt_provider.name, model=tgt_provider.model, prompt=test.prompt, system=test.system or cfg.system)
-            per_test["response"] = target_res.response
-            per_test["latency_ms"] = target_res.latency_ms
-            per_test["input_tokens"] += target_res.usage.input_tokens
-            per_test["output_tokens"] += target_res.usage.output_tokens
-            per_test["cost_usd"] += target_res.cost_usd
-        except Exception as e:
-            msg = str(e)
-            is_auth = "api_key" in msg.lower() or "credentials" in msg.lower() or "401" in msg
-            if is_auth:
-                if json_output:
-                    console.print_json(data={"error": msg, "hint": f"check {PROVIDER_DEFAULTS[tgt_provider.name]['env_key']}"})
-                else:
-                    err_console.print(Panel(msg, title="auth error", border_style="red"))
-                raise typer.Exit(2)
-            per_test["response"] = f"[target error] {msg}"
-            per_test["passed"] = False
-            for rule in test.rules:
-                per_test["rules"].append({"rule": rule, "passed": False, "reasoning": msg[:200]})
-                total_fail += 1
-            results.append(per_test)
-            if not json_output:
-                _render_test_simple(idx, per_test, budget, total_cost)
-                _render_test(console, per_test, verbose)
-                if not per_test["passed"]:
-                    for r in per_test["rules"]:
-                        if not r["passed"]:
-                            _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
-            continue
+        is_command = bool(test.target and test.target.command)
+        if is_command:
+            _, judge_provider = resolve_for_test(
+                global_provider=global_provider,
+                test_provider=test.provider,
+                test_model=test.model,
+                test_judge_model=test.judge_model,
+                cli_base_url=None,
+                cli_api_key=None,
+            )
+            per_test: dict = {
+                "name": test.name,
+                "prompt": test.prompt,
+                "provider": "command",
+                "model": test.target.command[:60],
+                "rules": [],
+                "response": "",
+                "passed": True,
+                "latency_ms": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cost_usd": 0.0,
+            }
+            try:
+                target_res = call_target_command(test.target.command, test.prompt, timeout=30)
+                per_test["response"] = target_res.response
+                per_test["latency_ms"] = target_res.latency_ms
+                per_test["input_tokens"] += target_res.usage.input_tokens
+                per_test["output_tokens"] += target_res.usage.output_tokens
+                per_test["cost_usd"] += target_res.cost_usd
+            except Exception as e:
+                msg = str(e)
+                per_test["response"] = f"[target error] {msg}"
+                per_test["passed"] = False
+                for rule in test.rules:
+                    per_test["rules"].append({"rule": rule, "passed": False, "reasoning": msg[:200]})
+                    total_fail += 1
+                results.append(per_test)
+                if not json_output:
+                    _render_test_simple(idx, per_test, budget, total_cost)
+                    _render_test(console, per_test, verbose)
+                    if not per_test["passed"]:
+                        for r in per_test["rules"]:
+                            if not r["passed"]:
+                                _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
+                continue
+        else:
+            tgt_provider, judge_provider = resolve_for_test(
+                global_provider=global_provider,
+                test_provider=test.provider,
+                test_model=test.model,
+                test_judge_model=test.judge_model,
+                cli_base_url=None,
+                cli_api_key=None,
+            )
+            per_test: dict = {
+                "name": test.name,
+                "prompt": test.prompt,
+                "provider": tgt_provider.name,
+                "model": tgt_provider.model,
+                "rules": [],
+                "response": "",
+                "passed": True,
+                "latency_ms": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "cost_usd": 0.0,
+            }
+            try:
+                tgt_client = make_client(tgt_provider)
+                target_res = call_target(tgt_client, provider=tgt_provider.name, model=tgt_provider.model, prompt=test.prompt, system=test.system or cfg.system)
+                per_test["response"] = target_res.response
+                per_test["latency_ms"] = target_res.latency_ms
+                per_test["input_tokens"] += target_res.usage.input_tokens
+                per_test["output_tokens"] += target_res.usage.output_tokens
+                per_test["cost_usd"] += target_res.cost_usd
+            except Exception as e:
+                msg = str(e)
+                is_auth = "api_key" in msg.lower() or "credentials" in msg.lower() or "401" in msg
+                if is_auth:
+                    if json_output:
+                        console.print_json(data={"error": msg, "hint": f"check {PROVIDER_DEFAULTS[tgt_provider.name]['env_key']}"})
+                    else:
+                        err_console.print(Panel(msg, title="auth error", border_style="red"))
+                    raise typer.Exit(2)
+                per_test["response"] = f"[target error] {msg}"
+                per_test["passed"] = False
+                for rule in test.rules:
+                    per_test["rules"].append({"rule": rule, "passed": False, "reasoning": msg[:200]})
+                    total_fail += 1
+                results.append(per_test)
+                if not json_output:
+                    _render_test_simple(idx, per_test, budget, total_cost)
+                    _render_test(console, per_test, verbose)
+                    if not per_test["passed"]:
+                        for r in per_test["rules"]:
+                            if not r["passed"]:
+                                _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
+                continue
 
         try:
             judge_client = make_client(judge_provider)

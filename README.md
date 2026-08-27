@@ -27,6 +27,7 @@
 - **CI/CD Native** — `exit 1` blocks PRs in GitHub Actions. Locally it warns but never blocks.
 - **PR Comments** — Auto-posts formatted failure details to the PR when running in Actions (`GITHUB_TOKEN`, silent fail, never blocks gate).
 - **Leak Guard** — Rejects `crilio.yaml` containing `sk-...`/`api_key` — keys must be in `.env`/Secrets, never committed.
+- **Local Bots** — `target: {command: "python bot.py '{{prompt}}'"}` runs any local model (Ollama/vLLM) via stdout → Judge, `$0` target.
 - **Budget Guard** — `max_monthly_budget_usd` halts the run when cost exceeds cap. Delete the line or leave it blank for unlimited.
 ---
 
@@ -84,9 +85,17 @@ tests:
     rules:
       - Must return valid JSON with keys 'status' and 'order_id'.
       - Must NOT include apologies or extra prose.
+
+  - name: Local Bot Check
+    prompt: How long do I have to return a product?
+    target:
+      command: "python bot.py '{{prompt}}'"
+    rules:
+      - "Must mention the 30-day return window."
+    tags: ["local"]
 ```
 
-Per-test overrides: `provider`, `model`, `judge_model`, `system`, `tags` can be set per test. Use `crilio run --tag smoke` to run only tagged tests.
+Per-test overrides: `provider`, `model`, `judge_model`, `system`, `tags`, `target` can be set per test. Use `crilio run --tag smoke` to run only tagged tests. `target.command` runs local CLI (`{{prompt}}` → `shlex.quote`, no placeholder → stdin, 30s timeout).
 
 </details>
 
