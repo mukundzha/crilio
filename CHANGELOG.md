@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 ### Changed
 - TBD
 
+## [0.0.4] - 2026-08-26
+
+### Added
+- **`target: {command}` local bots** — `target: {command: "python bot.py '{{prompt}}'"}` (also shorthand `target: "echo hi"`) runs any CLI (Ollama/vLLM/`curl`) via `stdout → Judge`, `{{prompt}}` → `shlex.quote` (`'{{prompt}}'`/`"{{prompt}}"`/`{{prompt}}` all safe), no placeholder → stdin pipe, `timeout 30s`, `$0` target cost, injection-safe; `bot.py` example (argv + stdin)
+- **Leak Guard** — `load_config` rejects `crilio.yaml` containing `sk-...`/`api_key:` (exit 2) — use `.env`/Secrets
+- **Workflow** — `crilio init` now scaffolds `GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}` for PR comments
+
+### Changed
+- `README` + `docs.py` — added Local Bots feature, `crilio.yaml` example with `target.command`, How It Works `Target: BYOK *or* local`, Keys, Files & Project Structure, Roadmap shipped
+- `src/crilio/config.py` — `TargetCommand` + `TestCase.target` (string shorthand coerced)
+- `src/crilio/target.py` — `call_target_command` (shlex, subprocess, timeout)
+- `src/crilio/cli.py` — `run()` branches `command` vs API (Judge still API), `$0` cost, same PR comment/budget/tag paths
+
 ## [0.0.3] - 2026-08-26
 
 ### Added
@@ -45,7 +58,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 - GitHub Actions workflow template on `pull_request`
 - License AGPL-3.0-only
 
-[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.3...HEAD
+[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.4...HEAD
+[0.0.4]: https://github.com/mukundzha/crilio/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/mukundzha/crilio/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/mukundzha/crilio/compare/v0.0.1...v0.0.2
 [0.0.1]: https://github.com/mukundzha/crilio/releases/tag/v0.0.1
