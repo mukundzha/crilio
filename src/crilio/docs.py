@@ -126,6 +126,7 @@ Keys:
 - `tests[].rules` are natural language — Judge is literal. Use `Must` / `Must NOT`.
 - `tests[].tags` optional list — filter with `crilio run --tag smoke`
 - Per-test `provider/model/judge_model/system/tags` overrides global (advanced, needs its own key).
+- **Leak Guard:** `crilio.yaml` containing `sk-...` or `api_key:` fails `validate`/`run` (exit 2) — use `.env` / Secrets.
 
 
 ---

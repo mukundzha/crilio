@@ -26,6 +26,7 @@
 - **BYOK** — Your keys, your bill. OpenAI + Anthropic. Typically < $0.01 / test on `gpt-4o-mini`.
 - **CI/CD Native** — `exit 1` blocks PRs in GitHub Actions. Locally it warns but never blocks.
 - **PR Comments** — Auto-posts formatted failure details to the PR when running in Actions (`GITHUB_TOKEN`, silent fail, never blocks gate).
+- **Leak Guard** — Rejects `crilio.yaml` containing `sk-...`/`api_key` — keys must be in `.env`/Secrets, never committed.
 - **Budget Guard** — `max_monthly_budget_usd` halts the run when cost exceeds cap. Delete the line or leave it blank for unlimited.
 ---
 

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import pathlib
+import re
 from typing import Literal, Optional
 
 import yaml
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+_LEAK_RE = re.compile(r"sk-(proj|ant)-[A-Za-z0-9_-]{10,}|sk-[A-Za-z0-9_-]{20,}")
 
 ProviderName = Literal["openai", "anthropic"]
 
@@ -88,7 +91,12 @@ def load_config(path: str | pathlib.Path) -> CrilioConfig:
     p = pathlib.Path(path)
     if not p.exists():
         raise FileNotFoundError(f"config not found: {p}")
-    raw = yaml.safe_load(p.read_text(encoding="utf-8"))
+    text = p.read_text(encoding="utf-8")
+    if _LEAK_RE.search(text):
+        raise ValueError("Potential API key detected in crilio.yaml — remove keys, use .env / GitHub Secrets (OPENAI_API_KEY / ANTHROPIC_API_KEY) instead")
+    if re.search(r"(?i)\bapi[_-]?key\s*:", text):
+        raise ValueError("Potential api_key field detected in crilio.yaml — use env var instead")
+    raw = yaml.safe_load(text)
     if not isinstance(raw, dict):
         raise ValueError("crilio.yaml must be a mapping")
     if "tests" not in raw:
