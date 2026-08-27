@@ -145,8 +145,10 @@ Keys:
 - `tests[].rules` are natural language — Judge is literal. Use `Must` / `Must NOT`.
 - `tests[].tags` optional list — filter with `crilio run --tag smoke` (no flag = all, missing tags = skipped when filtered)
 - `tests[].target.command` — local CLI e.g. `python bot.py '{{prompt}}'` or `ollama run llama3 '{{prompt}}'`, `{{prompt}}` → `shlex.quote`, no placeholder → stdin pipe, `timeout 30s`, `$0` target, injection-safe
-- Per-test `provider/model/judge_model/system/tags/target` overrides global (advanced, needs its own key).
+- `tests[].skip` — set `skip: true` to pause a test (shows SKIPPED)
+- Per-test `provider/model/judge_model/system/tags/target/skip` overrides global (advanced, needs its own key).
 - **Leak Guard:** `crilio.yaml` containing `sk-...` or `api_key:` fails `validate`/`run` (exit 2) — use `.env` / Secrets, never commit keys.
+- **Telemetry:** Anonymous `cli_command`/`cli_run_*` to PostHog (`POSTHOG_API_KEY`, no prompts/keys). Disable via `--off-tracking`, `CRILIO_DISABLE_TELEMETRY=1`/`DO_NOT_TRACK=1`, or `settings: telemetry: false`.
 
 ---
 
@@ -155,6 +157,7 @@ Keys:
 | Command | What it does | Key flags |
 |---|---|---|
 | `crilio init` | Create `crilio.yaml` + optionally `.github/workflows/crilio.yml` | `--yes` `--force` |
+| `crilio ls` | List tests | `-c --config` `--tag` `--json` |
 | `crilio validate` | Validate config without calling APIs | `-c --config` `--json` |
 | `crilio run` | Run gate: Target → Judge → report → exit 0/1 | `-c --config` `--model` `--judge-model` `--verbose` `--json` `--dry-run` `--tag` |
 | `crilio --docs` | Show this guide | — |

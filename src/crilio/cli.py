@@ -20,6 +20,7 @@ from crilio.config import DEFAULT_CONFIG_YAML, CrilioConfig, load_config
 from crilio.judge import judge_rule
 from crilio.provider import PROVIDER_DEFAULTS, VALID_PROVIDERS, load_dotenv, make_client, resolve_for_test, resolve_provider
 from crilio.target import call_target, call_target_command
+from crilio.telemetry import track
 
 app = typer.Typer(name="crilio", add_completion=False, no_args_is_help=False)
 console = Console()
@@ -123,14 +124,24 @@ def _post_github_pr_comment(test_name: str, rule_broken: str, ai_response: str, 
         console.print("[grey50]Warning: Failed to post GitHub PR comment.[/grey50]")
 
 
+def _disable_telemetry_callback(value: bool):
+    if value:
+        os.environ["CRILIO_DISABLE_TELEMETRY"] = "1"
+    return value
+
+
 def version_callback(value: bool):
     if value:
+        if os.getenv("CRILIO_DISABLE_TELEMETRY") != "1" and os.getenv("DO_NOT_TRACK") != "1":
+            track("cli_command", {"command": "version"})
         console.print(f"crilio {__version__}")
         raise typer.Exit()
 
 
 def docs_callback(value: bool):
     if value:
+        if os.getenv("CRILIO_DISABLE_TELEMETRY") != "1" and os.getenv("DO_NOT_TRACK") != "1":
+            track("cli_command", {"command": "docs"})
         from crilio.docs import show_docs
 
         show_docs(console)
@@ -140,11 +151,15 @@ def docs_callback(value: bool):
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
+    disable_telemetry: bool = typer.Option(False, "--off-tracking", help="Disable analytics", callback=_disable_telemetry_callback, is_eager=True),
     version: bool = typer.Option(None, "--version", "-v", help="Show version", callback=version_callback, is_eager=True),
     docs: bool = typer.Option(None, "--docs", help="Show full documentation guide", callback=docs_callback, is_eager=True, hidden=True),
 ):
     load_dotenv()
-    if ctx.invoked_subcommand is None and not version and not docs:
+    if ctx.invoked_subcommand:
+        pass
+    elif not version and not docs:
+        track("cli_command", {"command": "home"})
         _show_homepage()
         raise typer.Exit(0)
 
@@ -161,8 +176,12 @@ def docs():
 def init(
     force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing crilio.yaml"),
     yes: bool = typer.Option(False, "--yes", "-y", help="Non-interactive, use defaults"),
+    disable_telemetry: bool = typer.Option(False, "--off-tracking", help="Disable analytics"),
 ):
     """Initialize crilio.yaml — Step 3 of setup."""
+    if disable_telemetry:
+        os.environ["CRILIO_DISABLE_TELEMETRY"] = "1"
+    track("cli_command", {"command": "init"})
     dest = pathlib.Path("crilio.yaml")
     if dest.exists() and not force:
         err_console.print(f"[yellow]crilio.yaml already exists at {dest} — use --force to overwrite[/]")
@@ -243,6 +262,7 @@ jobs:
         if is_tty and not yes:
             console.print("[dim]Skipped GitHub Actions setup — create .github/workflows/crilio.yml manually to enable CI gate[/]")
 
+    track("cli_init", {"force": force, "yes": yes})
     raise typer.Exit(0)
 
 
@@ -255,8 +275,11 @@ def run(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate config without calling APIs"),
     tag: Optional[str] = typer.Option(None, "--tag", help="Only run tests with the specified tag."),
+    disable_telemetry: bool = typer.Option(False, "--off-tracking", help="Disable analytics"),
 ):
     """Run the quality gate: Target → Judge → pass/fail."""
+    if disable_telemetry:
+        os.environ["CRILIO_DISABLE_TELEMETRY"] = "1"
     t_start = time.perf_counter()
 
     try:
@@ -276,6 +299,12 @@ def run(
             console.print(f"[yellow]No tests found with tag '{tag}'. Running 0 tests.[/yellow]")
             raise typer.Exit(0)
         console.print(f"[grey]Filtering by tag '{tag}': Running {len(cfg.tests)} of {original_count} tests.[/grey]")
+
+    if cfg.settings and cfg.settings.telemetry is False:
+        os.environ["CRILIO_DISABLE_TELEMETRY"] = "1"
+
+    track("cli_command", {"command": "run"})
+    track("cli_run_started", {"num_tests": len(cfg.tests), "num_rules": sum(len(t.rules) for t in cfg.tests), "has_tag": bool(tag), "has_target_command": any(t.target and t.target.command for t in cfg.tests)})
 
     from crilio.provider import infer_provider_from_env
 
@@ -353,6 +382,10 @@ def run(
     stopped_early = False
 
     for idx, test in enumerate(cfg.tests, 1):
+        if test.skip:
+            if not json_output:
+                console.print(f"[dim]Test {idx}: {test.name} [yellow]SKIPPED[/] — skip: true[/]")
+            continue
         is_command = bool(test.target and test.target.command)
         if is_command:
             _, judge_provider = resolve_for_test(
@@ -532,6 +565,7 @@ def run(
                 f"estimated cost ${total_cost:.6f}[/]"
             )
 
+    track("cli_run_finished", {"gate_passed": gate_passed, "passed": total_pass, "failed": total_fail, "elapsed_s": round(elapsed, 2), "budget_exceeded": budget_exceeded})
     gha_enabled = pathlib.Path(".github/workflows/crilio.yml").exists() or os.getenv("GITHUB_ACTIONS") == "true"
     if not gha_enabled:
         if not gate_passed:
@@ -544,8 +578,11 @@ def run(
 def validate(
     config: str = typer.Option("crilio.yaml", "--config", "-c", help="Path to crilio.yaml"),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
+    disable_telemetry: bool = typer.Option(False, "--off-tracking", help="Disable analytics"),
 ):
     """Validate configuration without calling provider APIs."""
+    if disable_telemetry:
+        os.environ["CRILIO_DISABLE_TELEMETRY"] = "1"
     try:
         cfg = load_config(config)
         provider = resolve_provider(
@@ -570,6 +607,10 @@ def validate(
             err_console.print(f"[red]✗ Configuration invalid[/]\n\n  {message}")
         raise typer.Exit(2)
 
+    if cfg.settings and cfg.settings.telemetry is False:
+        os.environ["CRILIO_DISABLE_TELEMETRY"] = "1"
+
+    track("cli_command", {"command": "validate"})
     n_tests = len(cfg.tests)
     n_rules = sum(len(test.rules) for test in cfg.tests)
     budget = cfg.max_monthly_budget_usd
@@ -596,6 +637,48 @@ def validate(
         console.print(f"  Budget: {budget_text}")
         if budget is not None:
             console.print(f"  Remaining on fresh run: ${budget:.2f}")
+    track("cli_validate", {"valid": True, "tests": n_tests, "rules": n_rules})
+    raise typer.Exit(0)
+
+
+@app.command("ls")
+@app.command("list", hidden=True)
+def list_tests(
+    config: str = typer.Option("crilio.yaml", "--config", "-c", help="Path to crilio.yaml"),
+    tag: Optional[str] = typer.Option(None, "--tag", help="Filter by tag"),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON"),
+    disable_telemetry: bool = typer.Option(False, "--off-tracking", help="Disable analytics"),
+):
+    """List tests in crilio.yaml."""
+    if disable_telemetry:
+        os.environ["CRILIO_DISABLE_TELEMETRY"] = "1"
+    try:
+        cfg = load_config(config)
+    except Exception as e:
+        err_console.print(f"[red]Invalid config {config}: {e}[/]")
+        raise typer.Exit(2)
+    if cfg.settings and cfg.settings.telemetry is False:
+        os.environ["CRILIO_DISABLE_TELEMETRY"] = "1"
+    tests = cfg.tests
+    if tag:
+        tests = [t for t in tests if tag in (t.tags or [])]
+    if json_output:
+        console.print_json(data=[{"name": t.name, "tags": t.tags or [], "skip": t.skip, "rules": len(t.rules), "target": t.target.command if t.target else f"{t.provider or cfg.provider}/{t.model or cfg.model}"} for t in tests])
+        raise typer.Exit(0)
+    tbl = Table(show_header=True, header_style="dim", box=None, padding=(0, 1))
+    tbl.add_column("#", width=3)
+    tbl.add_column("Test", ratio=1)
+    tbl.add_column("Tags", ratio=1)
+    tbl.add_column("Rules", width=6, justify="center")
+    tbl.add_column("Target", ratio=1)
+    for idx, t in enumerate(tests, 1):
+        status = " [yellow]skip[/]" if t.skip else ""
+        tags = ", ".join(t.tags or []) or "[dim]—[/]"
+        target = t.target.command[:40] + "…" if t.target and len(t.target.command) > 40 else (t.target.command if t.target else f"{t.provider or cfg.provider or 'openai'}/{t.model or cfg.model or 'gpt-4o-mini'}")
+        tbl.add_row(str(idx), f"{t.name}{status}", tags, str(len(t.rules)), target)
+    console.print(tbl)
+    console.print(f"[dim]{len(tests)}/{len(cfg.tests)} tests shown[/]")
+    track("cli_command", {"command": "ls"})
     raise typer.Exit(0)
 
 

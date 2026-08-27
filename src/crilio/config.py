@@ -16,6 +16,7 @@ class Settings(BaseModel):
     target_model: str = "gpt-4o"
     judge_model: str = "gpt-4o-mini"
     max_monthly_budget_usd: Optional[float] = Field(None, ge=0)
+    telemetry: bool = True
 
     @field_validator("max_monthly_budget_usd", mode="before")
     @classmethod
@@ -46,6 +47,7 @@ class TestCase(BaseModel):
     judge_model: Optional[str] = None
     tags: Optional[list[str]] = None
     target: Optional[TargetCommand] = None
+    skip: bool = False
 
     @field_validator("target", mode="before")
     @classmethod

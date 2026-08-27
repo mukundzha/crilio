@@ -28,6 +28,8 @@
 - **PR Comments** — Auto-posts formatted failure details to the PR when running in Actions (`GITHUB_TOKEN`, silent fail, never blocks gate).
 - **Leak Guard** — Rejects `crilio.yaml` containing `sk-...`/`api_key` — keys must be in `.env`/Secrets, never committed.
 - **Local Bots** — `target: {command: "python bot.py '{{prompt}}'"}` runs any local model (Ollama/vLLM) via stdout → Judge, `$0` target.
+- **Telemetry** — Anonymous `cli_command`/`cli_run` events to PostHog (no prompts/keys). Disable via `--off-tracking`, `CRILIO_DISABLE_TELEMETRY=1`/`DO_NOT_TRACK=1`, or `settings.telemetry: false`.
+- **Skip & List** — `skip: true` per-test to pause, `crilio ls [--tag] [--json]` to preview tests without running.
 - **Budget Guard** — `max_monthly_budget_usd` halts the run when cost exceeds cap. Delete the line or leave it blank for unlimited.
 ---
 
@@ -51,6 +53,7 @@ crilio run                           # Target → Judge → gate
 | Command | Description |
 |---|---|
 | `crilio init [--force] [--yes]` | Create `crilio.yaml` + optional GitHub Actions workflow |
+| `crilio ls [-c FILE] [--tag TAG] [--json]` | List tests — preview without running |
 | `crilio run [-c FILE] [-m MODEL] [--judge-model MODEL] [--verbose] [--json] [--dry-run] [--tag TAG]` | Run gate — `0` pass, `1` fail (only in CI) · `--tag` filters to `tags: [TAG]` tests |
 | `crilio validate [-c FILE] [--json]` | Validate config without API calls — `0` valid, `2` invalid |
 | `crilio --version` / `crilio --docs` | Version / full interactive guide |
@@ -95,7 +98,7 @@ tests:
     tags: ["local"]
 ```
 
-Per-test overrides: `provider`, `model`, `judge_model`, `system`, `tags`, `target` can be set per test. Use `crilio run --tag smoke` to run only tagged tests. `target.command` runs local CLI (`{{prompt}}` → `shlex.quote`, no placeholder → stdin, 30s timeout).
+Per-test overrides: `provider`, `model`, `judge_model`, `system`, `tags`, `target`, `skip` can be set per test. `skip: true` pauses, `crilio ls` previews. Use `crilio run --tag smoke` to run only tagged tests. `target.command` runs local CLI (`{{prompt}}` → `shlex.quote`, no placeholder → stdin, 30s timeout).
 
 </details>
 
