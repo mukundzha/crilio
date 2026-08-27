@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 ### Changed
 - TBD
 
+## [0.0.5] - 2026-08-27
+
+### Added
+- **Telemetry** — anonymous PostHog `cli_command`/`cli_run_*`/`cli_validate` events (`POSTHOG_API_KEY`, `us.i.posthog.com`, no prompts/keys, `distinct_id` in `~/.config/crilio/telemetry_id`); production ready with 4 kill-switches: `crilio --off-tracking` (global) / `crilio <cmd> --off-tracking` (per-command) / `CRILIO_DISABLE_TELEMETRY=1`/`DO_NOT_TRACK=1` / `settings: telemetry: false` (all silent, never blocks)
+- **Skip & List** — `skip: true` per-test to pause (shows `SKIPPED`), `crilio ls` / `crilio list` (`--tag`, `--json`, `--off-tracking`) to preview without cost; `run` respects `skip`
+- **Ollama template** — `README` `🦙 Ollama template` (`ollama run llama3 '{{prompt}}'`, `{{prompt}}` → `shlex.quote`, stdin fallback, `crilio run --tag ollama`)
+
+### Changed
+- `src/crilio/config.py` — `Settings.telemetry: bool = True`, `TestCase.skip: bool = False`
+- `src/crilio/telemetry.py` — new, `us.i.posthog.com` default, `1s` timeout, `CRILIO_TELEMETRY_DEBUG=1`
+- `src/crilio/cli.py` — global + per-command `--off-tracking`, `run`/`validate`/`ls` respect `settings.telemetry: false`, `ls`/`list` commands
+- `README` + `docs.py` — Telemetry, Local Bots, Ollama, Skip & List, `crilio ls` in Usage
+
 ## [0.0.4] - 2026-08-26
 
 ### Added
@@ -58,7 +71,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 - GitHub Actions workflow template on `pull_request`
 - License AGPL-3.0-only
 
-[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.4...HEAD
+[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.5...HEAD
+[0.0.5]: https://github.com/mukundzha/crilio/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/mukundzha/crilio/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/mukundzha/crilio/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/mukundzha/crilio/compare/v0.0.1...v0.0.2
