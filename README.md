@@ -99,6 +99,32 @@ Per-test overrides: `provider`, `model`, `judge_model`, `system`, `tags`, `targe
 
 </details>
 
+<details>
+<summary><strong>🦙 Ollama template — test any local model</strong></summary>
+
+```yaml
+# 1. ollama serve & ollama pull llama3  (or mistral, qwen2, etc.)
+# 2. crilio.yaml:
+settings:
+  target_model: gpt-4o
+  judge_model: gpt-4o-mini
+
+tests:
+  - name: Ollama Refund
+    prompt: "How long do I have to return a product?"
+    target:
+      command: "ollama run llama3 '{{prompt}}'"  # any model: mistral, qwen2, gemma
+      # no placeholder also works → stdin: command: "ollama run llama3"
+    rules:
+      - "Must mention the 30-day return window."
+    tags: ["ollama", "local"]
+
+# 3. export OPENAI_API_KEY="sk-..."  # Judge still API
+# 4. crilio run --tag ollama --verbose
+```
+
+</details>
+
 ---
 
 ### 🔄 CI/CD Integration
