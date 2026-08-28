@@ -157,6 +157,7 @@ Keys:
 |---|---|---|
 | `crilio init` | Create `crilio.yaml` + optionally `.github/workflows/crilio.yml` | `--yes` `--force` |
 | `crilio ls` | List tests | `-c --config` `--tag` `--json` |
+| `crilio diff` | Show prompt/rule diff between git refs | `--base` `-c --config` `--json` `--fail-on-change` |
 | `crilio validate` | Validate config without calling APIs | `-c --config` `--json` |
 | `crilio run` | Run gate: Target → Judge → report → exit 0/1 | `-c --config` `--model` `--judge-model` `--verbose` `--json` `--dry-run` `--tag` |
 | `crilio --docs` | Show this guide | — |
@@ -172,6 +173,8 @@ crilio run                          # 5 steps: read → target → judge → rep
 crilio run --tag smoke
 crilio run --tag local
 crilio run --model gpt-4o --verbose
+crilio diff --base main            # prompt/rule diff
+crilio diff --base HEAD --json     # machine-readable
 ```
 
 ---

@@ -29,6 +29,7 @@
 - **Leak Guard** — Rejects `crilio.yaml` containing `sk-...`/`api_key` — keys must be in `.env`/Secrets, never committed.
 - **Local Bots** — `target: {command: "python bot.py '{{prompt}}'"}` runs any local model (Ollama/vLLM) via stdout → Judge, `$0` target.
 - **Skip & List** — `skip: true` per-test to pause, `crilio ls [--tag] [--json]` to preview tests without running.
+- **Diff** — `crilio diff --base main` shows prompt/rule changes between git refs (`+`/`-` per rule, not whole list).
 - **Budget Guard** — `max_monthly_budget_usd` halts the run when cost exceeds cap. Delete the line or leave it blank for unlimited.
 ---
 
@@ -53,6 +54,7 @@ crilio run                           # Target → Judge → gate
 |---|---|
 | `crilio init [--force] [--yes]` | Create `crilio.yaml` + optional GitHub Actions workflow |
 | `crilio ls [-c FILE] [--tag TAG] [--json]` | List tests — preview without running |
+| `crilio diff [--base REF] [-c FILE] [--json] [--fail-on-change]` | Show prompt/rule diff between git refs |
 | `crilio run [-c FILE] [-m MODEL] [--judge-model MODEL] [--verbose] [--json] [--dry-run] [--tag TAG]` | Run gate — `0` pass, `1` fail (only in CI) · `--tag` filters to `tags: [TAG]` tests |
 | `crilio validate [-c FILE] [--json]` | Validate config without API calls — `0` valid, `2` invalid |
 | `crilio --version` / `crilio --docs` | Version / full interactive guide |

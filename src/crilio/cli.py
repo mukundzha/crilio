@@ -3,9 +3,12 @@ from __future__ import annotations
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import time
 from typing import Optional
+
+import yaml
 
 import requests
 
@@ -636,6 +639,93 @@ def list_tests(
     console.print(tbl)
     console.print(f"[dim]{len(tests)}/{len(cfg.tests)} tests shown[/]")
     raise typer.Exit(0)
+
+
+@app.command()
+def diff(
+    base: str = typer.Option("main", "--base", "-b", help="Base git ref"),
+    config: str = typer.Option("crilio.yaml", "--config", "-c", help="Path to crilio.yaml"),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON"),
+    fail_on_change: bool = typer.Option(False, "--fail-on-change", help="Exit 1 if changes"),
+):
+    """Show prompt/rule diff between git refs."""
+    def _load_ref(ref: str):
+        try:
+            r = subprocess.run(["git", "show", f"{ref}:{config}"], capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                return yaml.safe_load(r.stdout) or {}
+        except Exception:
+            pass
+        return None
+    def _load_cur():
+        try:
+            return yaml.safe_load(pathlib.Path(config).read_text(encoding="utf-8")) or {}
+        except Exception as e:
+            err_console.print(f"[red]Invalid config {config}: {e}[/]")
+            raise typer.Exit(2)
+    cur = _load_cur()
+    base_data = _load_ref(base)
+    if base_data is None:
+        for alt in ["origin/main", "HEAD~1", "HEAD"]:
+            if alt == base:
+                continue
+            base_data = _load_ref(alt)
+            if base_data is not None:
+                base = alt
+                break
+        if base_data is None:
+            err_console.print(f"[yellow]No base {base} found — showing current only[/]")
+            base_data = {"tests": []}
+    def _map(d):
+        m = {}
+        for t in d.get("tests") or []:
+            m[t.get("name")] = t
+        return m
+    bmap, cmap = _map(base_data), _map(cur)
+    changes = []
+    for name in sorted(set(list(bmap.keys()) + list(cmap.keys()))):
+        b, c = bmap.get(name), cmap.get(name)
+        if b is None:
+            changes.append({"test": name, "field": "test", "change": "added"})
+        elif c is None:
+            changes.append({"test": name, "field": "test", "change": "removed"})
+        else:
+            for f in ["prompt", "rules", "tags", "target", "system", "provider", "model"]:
+                if b.get(f) != c.get(f):
+                    changes.append({"test": name, "field": f, "before": b.get(f), "after": c.get(f)})
+    if json_output:
+        console.print_json(data={"base": base, "config": config, "changes": changes, "count": len(changes)})
+        raise typer.Exit(1 if fail_on_change and changes else 0)
+    if not changes:
+        console.print(f"[green]No changes[/] — {base} → HEAD ({len(cmap)} tests)")
+        raise typer.Exit(0)
+    tbl = Table(show_header=True, header_style="dim", box=None, padding=(0, 1))
+    tbl.add_column("Test", style="cyan", no_wrap=True)
+    tbl.add_column("Field", style="yellow", no_wrap=True)
+    tbl.add_column("Change", ratio=1)
+    display_rows = 0
+    for ch in sorted(changes, key=lambda x: (x["test"], x["field"])):
+        if ch.get("change") in ("added", "removed"):
+            tbl.add_row(ch["test"], ch["field"], f"[bold]{ch['change']}[/]")
+            display_rows += 1
+        else:
+            if ch["field"] in ("rules", "tags") and isinstance(ch["before"], list) and isinstance(ch["after"], list):
+                b_set, c_set = set(ch["before"] or []), set(ch["after"] or [])
+                for added in sorted(c_set - b_set):
+                    tbl.add_row(ch["test"], ch["field"], f"[green]+ {added}[/]")
+                    display_rows += 1
+                for removed in sorted(b_set - c_set):
+                    tbl.add_row(ch["test"], ch["field"], f"[red]- {removed}[/]")
+                    display_rows += 1
+            else:
+                before = str(ch["before"])[:120].replace("\n", " ") if ch["before"] is not None else "[dim]—[/]"
+                after = str(ch["after"])[:120].replace("\n", " ") if ch["after"] is not None else "[dim]—[/]"
+                tbl.add_row(ch["test"], ch["field"], f"[red]- {before}[/]\n[green]+ {after}[/]")
+                display_rows += 1
+    console.print(Panel(tbl, title=f"[bold]Diff: {base} → HEAD[/]", border_style="dim", padding=(0, 1)))
+    word = "change" if display_rows == 1 else "changes"
+    console.print(f"[dim]{display_rows} {word} — {base} → HEAD ({len(cmap)} tests)[/]")
+    raise typer.Exit(1 if fail_on_change and changes else 0)
 
 
 def _render_test_simple(idx: int, test: dict, budget: float | None = None, spent: float = 0):
