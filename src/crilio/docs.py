@@ -148,7 +148,6 @@ Keys:
 - `tests[].skip` — set `skip: true` to pause a test (shows SKIPPED)
 - Per-test `provider/model/judge_model/system/tags/target/skip` overrides global (advanced, needs its own key).
 - **Leak Guard:** `crilio.yaml` containing `sk-...` or `api_key:` fails `validate`/`run` (exit 2) — use `.env` / Secrets, never commit keys.
-- **Telemetry:** Anonymous `cli_command`/`cli_run_*` to PostHog (`POSTHOG_API_KEY`, no prompts/keys). Disable via `--off-tracking`, `CRILIO_DISABLE_TELEMETRY=1`/`DO_NOT_TRACK=1`, or `settings: telemetry: false`.
 
 ---
 
