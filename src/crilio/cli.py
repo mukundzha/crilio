@@ -258,6 +258,7 @@ def run(
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Validate config without calling APIs"),
     tag: Optional[str] = typer.Option(None, "--tag", help="Only run tests with the specified tag."),
+    fail_fast: bool = typer.Option(False, "--fail-fast", help="Stop on first failure"),
 ):
     """Run the quality gate: Target → Judge → pass/fail."""
     t_start = time.perf_counter()
@@ -405,6 +406,10 @@ def run(
                         for r in per_test["rules"]:
                             if not r["passed"]:
                                 _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
+                if fail_fast and not per_test["passed"]:
+                    if not json_output:
+                        console.print(f"[yellow]Fail-fast: stopping after {len(results)}/{len(cfg.tests)} tests[/]")
+                    break
                 continue
         else:
             tgt_provider, judge_provider = resolve_for_test(
@@ -458,6 +463,10 @@ def run(
                         for r in per_test["rules"]:
                             if not r["passed"]:
                                 _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
+                if fail_fast and not per_test["passed"]:
+                    if not json_output:
+                        console.print(f"[yellow]Fail-fast: stopping after {len(results)}/{len(cfg.tests)} tests[/]")
+                    break
                 continue
 
         try:
@@ -493,6 +502,10 @@ def run(
                 for r in per_test["rules"]:
                     if not r["passed"]:
                         _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
+        if fail_fast and not per_test["passed"]:
+            if not json_output:
+                console.print(f"[yellow]Fail-fast: stopping after {len(results)}/{len(cfg.tests)} tests[/]")
+            break
         if budget is not None and total_cost > budget:
             budget_exceeded = True
             stopped_early = True

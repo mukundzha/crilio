@@ -9,6 +9,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 ### Changed
 - TBD
 
+## [0.0.6] - 2026-08-28
+
+### Added
+- **`crilio diff` — prompt/rule diff between git refs** — `crilio diff --base main` shows `Test | Field | Change` with `+ added` / `- removed` per rule (not whole list dump), `Panel` titled `Diff: main → HEAD`, `display_rows` count (`1 change` / `2 changes`), `sorted` tests/fields, `120` chars, `target`/`tags`/`prompt` diff, `--json` + `--fail-on-change`
+- **`--fail-fast` for `crilio run`** — `crilio run --fail-fast` stops after first `FAIL` (both `API` and `target.command` + target error), `Fail-fast: stopping after 1/3 tests`, before budget check
+
+### Changed
+- `README` + `docs.py` — added `Diff` bullet + `crilio diff` row in Usage, `crilio diff` in Commands table + examples
+- `src/crilio/cli.py` — `diff` command (`subprocess` `git show`, fallback `origin/main`/`HEAD~1`/`HEAD`), `--fail-fast` in `run` loop (3 spots: `is_command` target error, `API` target error, success path)
+
+### Removed
+- **Telemetry** — `src/crilio/telemetry.py` deleted, all `track()` + `--off-tracking` + `Settings.telemetry` + `POSTHOG` + README/docs mentions removed (`0` network, `0` dep)
+
 ## [0.0.5] - 2026-08-27
 
 ### Added
@@ -71,7 +84,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 - GitHub Actions workflow template on `pull_request`
 - License AGPL-3.0-only
 
-[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.5...HEAD
+[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.6...HEAD
+[0.0.6]: https://github.com/mukundzha/crilio/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/mukundzha/crilio/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/mukundzha/crilio/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/mukundzha/crilio/compare/v0.0.2...v0.0.3
