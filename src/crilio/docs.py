@@ -158,7 +158,7 @@ Keys:
 | `crilio ls` | List tests | `-c --config` `--tag` `--json` |
 | `crilio diff` | Show prompt/rule diff between git refs | `--base` `-c --config` `--json` `--fail-on-change` |
 | `crilio validate` | Validate config without calling APIs | `-c --config` `--json` |
-| `crilio run` | Run gate: Target → Judge → report → exit 0/1 | `-c --config` `--model` `--judge-model` `--verbose` `--json` `--dry-run` `--tag` |
+| `crilio run` | Run gate: Target → Judge → report → exit 0/1 | `-c --config` `--model` `--judge-model` `--verbose` `--json` `--dry-run` `--tag` `--fail-fast` |
 | `crilio --docs` | Show this guide | — |
 
 Key is **never** a flag — use `export OPENAI_API_KEY=sk-...` (see Step 2). No `--api-key`.
@@ -235,12 +235,12 @@ jobs:
 
 ```
 src/crilio/
-  cli.py      Typer + Rich (init/run/docs, gate, --json, --tag)
+  cli.py      Typer + Rich (init/run/docs, gate, --json, --tag, --fail-fast)
   config.py   PyYAML → Pydantic (crilio.yaml, tags, target.command, leak guard)
   setup.py    provider/key persistence helpers
-  provider.py openai/anthropic resolution
+  provider.py openai/anthropic resolution + key prefix validation
   target.py   BYOK chat.completions + call_target_command (shlex, subprocess, timeout 30s)
-  judge.py    instructor strict JudgeVerdict
+  judge.py    instructor strict JudgeVerdict, suppressed logging
   docs.py     this guide
 bot.py        Example local bot (argv or stdin → stdout)
 ```
@@ -266,6 +266,8 @@ Release: `python -m build && twine upload dist/*` → `pip install crilio` (or `
 ## 11 · Cost & Roadmap
 
 - Judge ~$0.002/test (`gpt-4o-mini`), 10k tests ≈ $20 — you pay provider. Local `target.command` → `$0` target cost.
+- **Shipped v0.0.7:** Homepage redesign (STATUS / EXAMPLES / COMMANDS), Rich `crilio run` output (Test/Prompt/Output/Verdict table, Gate PASS/FAIL summary), `--fail-fast`, API key prefix validation, suppressed judge logging.
+- **Shipped v0.0.6:** `crilio diff` organized prompt/rule diff, fail-fast, telemetry removed.
 - **Shipped v0.0.4:** `--tag` filtering, `target.command` local bots, PR comments, leak guard.
 - Roadmap: Cloud dashboard (history), Stripe license, self-hosted Judge, `{{system}}` placeholder for local bots.
 
