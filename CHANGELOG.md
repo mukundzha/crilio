@@ -9,6 +9,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 ### Changed
 - TBD
 
+## [0.0.7] - 2026-08-29
+
+### Added
+- **Homepage redesign** — `crilio` (no args) now renders `STATUS` / `EXAMPLES` / `COMMANDS` sections with a bold magenta `CRILIO_BANNER` and `_section()` helper; config/key/budget detection (`crilio.yaml` found → tests/rules/provider-model, env key masked, budget line), width-adaptive (`< 64` cols → short `crilio` fallback)
+- **`crilio run` result cards** — per-test card printed synchronously (no live spinner): `#01  Test Name  ● PASS  (320ms · $0.0012)` with `model`, `prompt`, `output` `Panel`, and `Rule / Verdict` table; `FAIL` cards highlight broken rule + reasoning; `SKIPPED` cards show `skip: true` reason
+- **Narrow-terminal fallback** — `console.width < 64` drops side padding and simplifies box chars to ASCII (`─`/`│`/`┌`/`┐`/`└`/`┘`) while keeping `--json` output unaffected
+
+### Changed
+- `src/crilio/cli.py` — `run()` header rewritten to `crilio · gate` in a magenta `Panel` with `→` arrow for target→judge flow; `_render_test_simple` + `_render_test` consolidated into `_render_test_card(idx, total, test, verbose, budget, spent)`; `_render_summary` now prints `gate PASS — 13/13 rules · 2.3s` / `gate FAIL — 1/13 FAILED · 2.3s` + `blocking PR` (GHA); magenta `Rule` divider and `MAGENTA` style tokens across run output
+- `src/crilio/provider.py` — `_is_valid_key_for_provider()` validates key prefixes (`sk-...` for OpenAI, `sk-ant-...` for Anthropic, `gsk_...`/`sk-...` for Groq base URLs) and raises `ValueError` with hint on mismatch; `resolve_for_test()` now propagates `base_url` from global provider
+- `src/crilio/judge.py` — suppress `instructor` + `openai` logging at `ERROR`, wrap judge call in `contextlib.redirect_stderr` to keep CLI output clean; improved `failed_generation` error handling with JSON parsing fallback; `max_retries=0` for faster failure surfacing
+- `src/crilio/config.py` — minor formatting/whitespace cleanup
+- `src/crilio/cost.py`, `src/crilio/docs.py`, `src/crilio/provider_page.py`, `src/crilio/setup.py`, `src/crilio/target.py` — small formatting and import-order cleanup
+
+### Added
+- **Tests** — `test_homepage_no_args`, `test_homepage_no_config_detects_missing`, `test_homepage_with_config_and_key`, `test_run_tag_filters_dry_run`, `test_run_tag_no_match_exits_zero`, `test_run_tag_skips_untagged`, `test_run_no_tag_runs_all`, expanded PR commenter coverage (`noop`, `posts`, `resilience`, `bad_ref`, `missing_env`, `never_logs_token`)
+
+### Changed
+- `crilio.yaml` — demo config updated to reflect current defaults and local `bot.py` target examples
+
 ## [0.0.6] - 2026-08-28
 
 ### Added
@@ -84,7 +104,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 - GitHub Actions workflow template on `pull_request`
 - License AGPL-3.0-only
 
-[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.6...HEAD
+[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.7...HEAD
+[0.0.7]: https://github.com/mukundzha/crilio/compare/v0.0.6...v0.0.7
 [0.0.6]: https://github.com/mukundzha/crilio/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/mukundzha/crilio/compare/v0.0.4...v0.0.5
 [0.0.4]: https://github.com/mukundzha/crilio/compare/v0.0.3...v0.0.4
