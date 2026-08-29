@@ -171,23 +171,59 @@ def dump_yaml(cfg: CrilioConfig) -> str:
 
 
 DEFAULT_CONFIG_YAML = """\
-# crilio.yaml
+# ==========================================
+# Crilio Configuration (crilio.yaml)
+# The CI/CD quality gate for AI.
+# ==========================================
+
 settings:
-  target_model: "gpt-4o"
-  judge_model: "gpt-4o-mini"
+  # Provider is automatically inferred from your API key (OPENAI_API_KEY or ANTHROPIC_API_KEY)
+  provider: openai
+  
+  # The AI model you are testing (Target)
+  target_model: gpt-4o-mini
+  
+  # The fast/cheap model that grades the tests (Judge)
+  judge_model: gpt-4o-mini
+  
+  # Hard limit on API spending per month (in USD) to prevent surprises
   max_monthly_budget_usd: 10.0
 
+# ==========================================
+# Test Cases
+# ==========================================
+
 tests:
+  # Test 1: Semantic Rule Check (API)
   - name: "Refund Policy Check"
     prompt: "How long do I have to return a product?"
     rules:
       - "Must mention the 30-day return window."
-      - "Must NOT mention competitor names."
+      - "Must NOT mention competitor names like Amazon or Walmart."
+    tags:
+      - "refund"
+      - "policy"
+      - "customer service"
 
+  # Test 2: JSON Formatting Enforcement (API)
   - name: "JSON Format Check"
-    prompt: |
-      Return ONLY this JSON and nothing else: {"status": "shipped", "order_id": "12345"}
+    prompt: "Return my user status as JSON."
     rules:
-      - "Must return valid JSON with keys 'status' and 'order_id'."
+      - "Must return valid JSON with keys 'status' and 'user_id'."
       - "Must NOT include apologies or extra prose."
+    tags:
+      - "json"
+      - "formatting"
+
+  # Test 3: Local Model Execution (Zero API Cost, Total Privacy)
+  # Uncomment the lines below to test a local model via Ollama!
+  # - name: "Local Llama 3 Check"
+  #   prompt: "Say hello in a professional tone."
+  #   target:
+  #     command: "ollama run llama3 '{{prompt}}'"
+  #   rules:
+  #     - "Must contain the word 'Hello' or 'Hi'."
+  #   tags:
+  #     - "local"
+  #     - "llama"
 """
