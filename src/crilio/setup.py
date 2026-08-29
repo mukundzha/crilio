@@ -99,7 +99,10 @@ def interactive_setup(
         print("Error: supported providers are openai and anthropic", file=sys.stderr)
         return 2
     if not api_key:
-        print("Usage: crilio setup --provider openai|anthropic --api-key ... --yes", file=sys.stderr)
+        print(
+            "Usage: crilio setup --provider openai|anthropic --api-key ... --yes",
+            file=sys.stderr,
+        )
         return 2
     if not skip_validate:
         ok, message = validate_key(provider_name, api_key)

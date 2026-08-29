@@ -1,3 +1,4 @@
+import json
 import pathlib
 import tempfile
 import textwrap
@@ -106,6 +107,69 @@ def test_validate_missing_config():
 def test_version():
     res = runner.invoke(app, ["--version"])
     assert res.exit_code == 0
+
+
+def test_homepage_no_args():
+    res = runner.invoke(app, [])
+    assert res.exit_code == 0
+    assert "crilio init" in res.stdout
+    assert "crilio run" in res.stdout
+
+
+def test_homepage_no_config_detects_missing():
+    with runner.isolated_filesystem():
+        res = runner.invoke(app, [])
+        assert res.exit_code == 0
+        assert "no crilio.yaml" in res.stdout
+
+
+def test_homepage_with_config_and_key():
+    with runner.isolated_filesystem():
+        pathlib.Path("crilio.yaml").write_text("tests:\n  - name: Hello\n    prompt: hi\n    rules: [must say hi]\n")
+        import os as _os
+        _os.environ["OPENAI_API_KEY"] = "sk-testkey123456"
+        try:
+            res = runner.invoke(app, [])
+            assert res.exit_code == 0
+            assert "crilio.yaml found" in res.stdout
+            assert "1 test" in res.stdout
+            assert "OPENAI_API_KEY active" in res.stdout
+            assert "sk-testkey123456" not in res.stdout  # key never leaked raw
+        finally:
+            del _os.environ["OPENAI_API_KEY"]
+
+
+def test_ls_lists_all_tests():
+    with runner.isolated_filesystem():
+        pathlib.Path("crilio.yaml").write_text(TAGGED_YAML)
+        res = runner.invoke(app, ["ls"])
+        assert res.exit_code == 0
+        assert "3 tests in crilio.yaml" in res.stdout
+        assert "tests shown" in res.stdout
+        assert "3/3 tests shown" in res.stdout
+
+
+def test_ls_tag_filter():
+    with runner.isolated_filesystem():
+        pathlib.Path("crilio.yaml").write_text(TAGGED_YAML)
+        res = runner.invoke(app, ["ls", "--tag", "smoke"])
+        assert res.exit_code == 0
+        assert "1 test" in res.stdout  # singular: "1 test"
+        assert "1/3 tests shown" in res.stdout
+
+
+def test_ls_json_shape_unchanged():
+    with runner.isolated_filesystem():
+        pathlib.Path("crilio.yaml").write_text(TAGGED_YAML)
+        res = runner.invoke(app, ["ls", "--json"])
+        assert res.exit_code == 0
+        data = json.loads(res.stdout)
+        assert isinstance(data, list)
+        assert len(data) == 3
+        assert data[0]["name"] == "A"
+        assert data[0]["tags"] == ["smoke"]
+        assert data[0]["rules"] == 1
+
 
 
 TAGGED_YAML = textwrap.dedent("""

@@ -8,8 +8,11 @@ from pydantic import BaseModel, Field
 
 from crilio.cost import Usage, cost_usd, estimate_tokens
 
+
 class JudgeVerdict(BaseModel):
-    rule_passed: bool = Field(description="True if response satisfies the rule, False otherwise")
+    rule_passed: bool = Field(
+        description="True if response satisfies the rule, False otherwise"
+    )
     reasoning: str = Field(default="", description="Brief 1-sentence justification")
 
 
@@ -24,16 +27,13 @@ class JudgeResult:
 
 
 JUDGE_SYSTEM = (
-    "You are an elite, uncompromising AI Quality Assurance Engineer with over a decade of experience evaluating LLMs at Google/Meta scale. "
-    "Your absolute priority is preventing broken, hallucinated, or non-compliant AI responses from reaching production. "
-    "You are evaluating a RESPONSE against a RULE. You must act with ruthless objectivity. Do not give the benefit of the doubt. "
-    "Be literal: 'Must mention X' fails if X is absent. 'Must NOT mention Y' fails if Y appears. 'Tone must be Z' fails if tone differs. "
-    "Evaluate ONLY based on the provided rule and response. Do not use outside knowledge. Do not be lenient. "
-    "Output strictly valid JSON only. Do not include markdown blocks (e.g., no ```json) or conversational filler. "
-    "The JSON must exactly match this schema: "
-    "{\"rule_evaluation\": \"<must be exactly 'PASS' or 'FAIL'>\", \"reasoning\": \"<1-2 sentence technical explanation>\", \"evidence\": \"<exact quote proving failure, or empty string if passed>\"}. "
-    "Example - RULE: Must NOT mention Amazon. RESPONSE: Buy it here, Amazon is cheaper. "
-    "Output: {\"rule_evaluation\": \"FAIL\", \"reasoning\": \"The response explicitly mentions the competitor Amazon, violating the negative constraint.\", \"evidence\": \"Amazon is cheaper\"}."
+    "You are a strict AI QA evaluator. Judge the RESPONSE against the RULE literally and objectively, "
+    "using only the given text — no outside knowledge, no benefit of the doubt. "
+    "'Must mention X' fails if X is absent; 'must not mention Y' fails if Y appears; tone/format rules fail on any deviation. "
+    "Output ONLY valid JSON (no markdown, no extra text) matching: "
+    '{"rule_evaluation": "PASS"|"FAIL", "reasoning": "<1-2 sentence explanation>", "evidence": "<exact quote if FAIL, else \'\'>"}. '
+    "Example — RULE: Must not mention Amazon. RESPONSE: Buy it here, Amazon is cheaper. "
+    'Output: {"rule_evaluation": "FAIL", "reasoning": "Response mentions the prohibited competitor Amazon.", "evidence": "Amazon is cheaper"}'
 )
 
 
@@ -45,6 +45,10 @@ def judge_rule(
     response: str,
     rule: str,
 ) -> JudgeResult:
+    import logging
+
+    logging.getLogger("instructor").setLevel(logging.ERROR)
+    logging.getLogger("openai").setLevel(logging.ERROR)
     patched = (
         instructor.from_anthropic(client)
         if provider == "anthropic"
@@ -52,34 +56,44 @@ def judge_rule(
     )
     t0 = time.perf_counter()
     try:
-        messages = [
-            {"role": "system", "content": JUDGE_SYSTEM},
-            {
-                "role": "user",
-                "content": f"RULE: {rule}\n\nRESPONSE:\n{response}\n\nDoes the response satisfy the rule?",
-            },
-        ]
-        if provider == "anthropic":
-            verdict = patched.messages.create(
-                model=judge_model,
-                response_model=JudgeVerdict,
-                messages=[messages[1]],
-                system=JUDGE_SYSTEM,
-                temperature=0,
-                max_tokens=1024,
-                max_retries=1,
-            )
-        else:
-            verdict = patched.chat.completions.create(
-                model=judge_model,
-                response_model=JudgeVerdict,
-                messages=messages,
-                temperature=0,
-                max_retries=1,
-            )
+        import contextlib
+        import io
+        import logging
+
+        logging.getLogger("instructor").setLevel(logging.ERROR)
+        with contextlib.redirect_stderr(io.StringIO()):
+            messages = [
+                {"role": "system", "content": JUDGE_SYSTEM},
+                {
+                    "role": "user",
+                    "content": f"RULE: {rule}\n\nRESPONSE:\n{response}\n\nDoes the response satisfy the rule?",
+                },
+            ]
+            if provider == "anthropic":
+                verdict = patched.messages.create(
+                    model=judge_model,
+                    response_model=JudgeVerdict,
+                    messages=[messages[1]],
+                    system=JUDGE_SYSTEM,
+                    temperature=0,
+                    max_tokens=1024,
+                    max_retries=0,
+                )
+            else:
+                verdict = patched.chat.completions.create(
+                    model=judge_model,
+                    response_model=JudgeVerdict,
+                    messages=messages,
+                    temperature=0,
+                    max_retries=0,
+                )
         latency = int((time.perf_counter() - t0) * 1000)
         judge_input = JUDGE_SYSTEM + rule + response
-        usage = Usage(estimate_tokens(judge_input), estimate_tokens(verdict.reasoning), estimated=True)
+        usage = Usage(
+            estimate_tokens(judge_input),
+            estimate_tokens(verdict.reasoning),
+            estimated=True,
+        )
         return JudgeResult(
             rule=rule,
             passed=bool(verdict.rule_passed),
@@ -90,6 +104,47 @@ def judge_rule(
         )
     except Exception as e:
         latency = int((time.perf_counter() - t0) * 1000)
+        msg = str(e)
+        if "failed_generation" in msg:
+            try:
+                import json as _json
+                import re as _re
+
+                fg = None
+                m = _re.search(r"'failed_generation':\s*'(\{.*?\})'", msg, _re.DOTALL)
+                if not m:
+                    m = _re.search(
+                        r'"failed_generation":\s*"(\{.*?\})"', msg, _re.DOTALL
+                    )
+                if m:
+                    fg = m.group(1)
+                else:
+                    m2 = _re.search(r"failed_generation.*?(\{.*\})", msg, _re.DOTALL)
+                    if m2:
+                        fg = m2.group(1)
+                if fg:
+                    fg = fg.replace('\\"', '"').replace("\\'", "'")
+                    try:
+                        data = _json.loads(fg)
+                    except Exception:
+                        data = _json.loads(fg.replace("'", '"'))
+                    if isinstance(data, dict) and "rule_evaluation" in data:
+                        passed = str(data.get("rule_evaluation", "")).upper() == "PASS"
+                        reasoning = (
+                            data.get("reasoning", "")
+                            or data.get("evidence", "")
+                            or msg[:200]
+                        )
+                        return JudgeResult(
+                            rule=rule,
+                            passed=passed,
+                            reasoning=reasoning[:200],
+                            latency_ms=latency,
+                            usage=Usage(),
+                            cost_usd=0.0,
+                        )
+            except Exception:
+                pass
         return JudgeResult(
             rule=rule,
             passed=False,

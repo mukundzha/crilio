@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import os
 import pathlib
 import subprocess
@@ -15,82 +14,128 @@ import requests
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
 from crilio.__version__ import __version__
 from crilio.config import DEFAULT_CONFIG_YAML, CrilioConfig, load_config
 from crilio.judge import judge_rule
-from crilio.provider import PROVIDER_DEFAULTS, VALID_PROVIDERS, load_dotenv, make_client, resolve_for_test, resolve_provider
+from crilio.provider import (
+    PROVIDER_DEFAULTS,
+    load_dotenv,
+    make_client,
+    resolve_for_test,
+    resolve_provider,
+)
+from crilio.setup import mask_key
 from crilio.target import call_target, call_target_command
 
 app = typer.Typer(name="crilio", add_completion=False, no_args_is_help=False)
 console = Console()
 err_console = Console(stderr=True)
 
-CRILIO_ASCII = r""" ____ ____  ___ _     ___ ___
-/ ___|  _ \|_ _| |   |_ _/ _ \
-| |   | |_) || || |    | | | | |
-| |___|  _ < | || |___ | | |_| |
-\____|_| \_\___|_____|___\___/"""
+
+CRILIO_BANNER = r""" ██████  ████████  ████ ██       ████  ███████
+██    ██ ██     ██  ██  ██        ██  ██     ██
+██       ██     ██  ██  ██        ██  ██     ██
+██       ████████   ██  ██        ██  ██     ██
+██       ██   ██    ██  ██        ██  ██     ██
+██    ██ ██    ██   ██  ██        ██  ██     ██
+ ██████  ██     ██ ████ ████████ ████  ███████"""
+
+
+def _section(c: Console, title: str) -> None:
+    width = max(4, c.width if c.width else 80) - 4
+    c.print(f"[bold #FF65C3]{title}[/]")
+    c.print("[dim]─[/]" * (width // 2))
 
 
 def _show_homepage():
-    w = console.width if console.width else 80
     c = console
     c.print()
+    w = c.width if c.width else 80
     if w >= 64:
-        from rich.text import Text
-
-        c.print(Panel(Text(CRILIO_ASCII, style="bold white", justify="center"), border_style="white", padding=(1, 2)))
-        c.print(Text("The CI/CD Quality Gate for AI  —  pytest for prompts", style="dim", justify="center"))
-        c.print(Text("Stop shipping prompt regressions to production", style="bold dim", justify="center"))
-        c.print()
+        c.print(f"[bold #FF65C3]{CRILIO_BANNER}[/]")
     else:
-        c.print(Panel.fit("  Crilio  —  pytest for prompts  ", style="bold white", border_style="white", padding=(1, 2)))
-        c.print()
-    c.print(Panel.fit("  pip install crilio  →  crilio init  →  set a provider key  →  crilio run  ", border_style="cyan", padding=(1, 2)))
+        c.print("[bold #FF65C3]crilio[/]")
     c.print()
-    tbl = Table(show_header=False, box=None, padding=(0, 2))
-    tbl.add_column("cmd", style="cyan", no_wrap=True, min_width=18)
-    tbl.add_column("desc", style="dim")
-    tbl.add_row("crilio init", "Create crilio.yaml (Step 3) + optionally .github/workflows/crilio.yml")
-    tbl.add_row("crilio run", "Gate: Target (gpt-4o) → Judge (gpt-4o-mini) → ✅/❌ report → exit 1 blocks PR (if GHA)")
-    tbl.add_row("crilio --docs", "Full guide — concept, config, providers, rules, CI")
-    tbl.add_row("crilio --version", "Show version")
-    c.print(tbl)
-    c.print()
+
     n_tests = 0
     n_rules = 0
     provider = "openai"
     model = "gpt-4o"
     try:
-        from crilio.config import load_config
-
         cfg = load_config("crilio.yaml")
         n_tests = len(cfg.tests)
         n_rules = sum(len(t.rules) for t in cfg.tests)
         provider = cfg.provider or "openai"
-        model = cfg.model or "gpt-4o"
-        c.print(Panel(f"  [green]● crilio.yaml found[/]  [dim]{n_tests} tests · {n_rules} rules · {provider}/{model}[/]  [cyan]crilio run --dry-run[/] to validate  ", border_style="green", padding=(0, 2)))
+        model = cfg.model or "gpt-4o-mini"
+        config_line = f"crilio.yaml found — {n_tests} test{'s' if n_tests != 1 else ''}, {n_rules} rule{'s' if n_rules != 1 else ''} · {provider}/{model}"
     except Exception:
-        c.print(Panel("  [yellow]● No crilio.yaml[/]  [dim]Run [cyan]crilio init[/] to create one → set OPENAI_API_KEY or ANTHROPIC_API_KEY → [cyan]crilio run[/][/]", border_style="yellow", padding=(0, 2)))
-    c.print()
-    configured_key = next(
-        ((name, defaults["env_key"], os.getenv(defaults["env_key"], "")) for name, defaults in PROVIDER_DEFAULTS.items() if os.getenv(defaults["env_key"])),
-        None,
-    )
-    if configured_key:
-        from crilio.setup import mask_key
+        config_line = (
+            "[bold #FF65C3]no crilio.yaml[/] · run [bold #FF65C3]crilio init[/]"
+        )
 
-        name, env_key, key = configured_key
-        c.print(f"[dim]  {name}/{env_key}: {mask_key(key)} [green]● detected[/][/]")
+    env_key, key = None, None
+    for name, defaults in PROVIDER_DEFAULTS.items():
+        k = os.getenv(defaults["env_key"], "")
+        if k:
+            env_key, key = defaults["env_key"], k
+            break
+    if key:
+        key_line = f"{env_key} active ([bold #FF65C3]{mask_key(key)}[/])"
     else:
-        c.print("[dim]  Provider key: [red]○ missing[/] → set OPENAI_API_KEY or ANTHROPIC_API_KEY (.env / GitHub Secrets)[/]")
+        key_line = "[bold #FF65C3]no key configured[/] · set [bold #FF65C3]OPENAI_API_KEY[/] or [bold #FF65C3]ANTHROPIC_API_KEY[/]"
+
+    budget = None
+    try:
+        budget = load_config("crilio.yaml").max_monthly_budget_usd
+    except Exception:
+        budget = None
+    if budget is not None:
+        budget_line = f"$0.00 / ${budget:.2f} (0%)"
+    else:
+        budget_line = "not configured"
+
+    _section(c, "STATUS")
+    c.print(f"  config   {config_line}")
+    c.print(f"  key      {key_line}")
+    c.print(f"  budget   {budget_line}")
+    c.print()
+
+    _section(c, "EXAMPLES")
+    examples = [
+        ("crilio init", "Create crilio.yaml (+ GitHub Actions workflow)."),
+        ("crilio run --dry-run", "Validate config without API calls."),
+        ("crilio run", "Target → judge → gate (exit 1 blocks PRs in GHA)."),
+        ("crilio run --tag smoke", 'Run only tests tagged "smoke".'),
+        ("crilio diff --base main", "Diff prompts/rules vs a git ref."),
+    ]
+    for cmd, desc in examples:
+        pad = max(1, 26 - len(cmd))
+        c.print(f"  [bold #FF65C3]{cmd}[/] {' ' * pad}{desc}")
+    c.print()
+
+    _section(c, "COMMANDS")
+    commands = [
+        ("init", "Create crilio.yaml + optional .github/workflows/crilio.yml"),
+        ("ls", "List tests in crilio.yaml (--tag, --json)"),
+        ("diff", "Diff prompts/rules vs git ref (--base, --fail-on-change)"),
+        ("validate", "Validate config without calling provider APIs"),
+        ("run", "Run the gate: target → judge → pass/fail (--tag, --model, --dry-run)"),
+        ("--docs", "Full interactive guide"),
+        ("--version", "Show version"),
+    ]
+    for cmd, desc in commands:
+        pad = max(1, 12 - len(cmd))
+        c.print(f"  [bold #FF65C3]{cmd}[/] {' ' * pad}{desc}")
     c.print()
 
 
-def _post_github_pr_comment(test_name: str, rule_broken: str, ai_response: str, reason: str):
+def _post_github_pr_comment(
+    test_name: str, rule_broken: str, ai_response: str, reason: str
+):
     """
     Posts a formatted comment to the GitHub PR if running in GitHub Actions.
     Fails silently to ensure CLI resilience.
@@ -109,7 +154,7 @@ def _post_github_pr_comment(test_name: str, rule_broken: str, ai_response: str, 
     url = f"https://api.github.com/repos/{repo}/issues/{pr_number}/comments"
     headers = {
         "Authorization": f"token {token}",
-        "Accept": "application/vnd.github.v3+json"
+        "Accept": "application/vnd.github.v3+json",
     }
     body = (
         f"### 🛑 Crilio AI Test Failed\n\n"
@@ -143,8 +188,22 @@ def docs_callback(value: bool):
 @app.callback(invoke_without_command=True)
 def main(
     ctx: typer.Context,
-    version: bool = typer.Option(None, "--version", "-v", help="Show version", callback=version_callback, is_eager=True),
-    docs: bool = typer.Option(None, "--docs", help="Show full documentation guide", callback=docs_callback, is_eager=True, hidden=True),
+    version: bool = typer.Option(
+        None,
+        "--version",
+        "-v",
+        help="Show version",
+        callback=version_callback,
+        is_eager=True,
+    ),
+    docs: bool = typer.Option(
+        None,
+        "--docs",
+        help="Show full documentation guide",
+        callback=docs_callback,
+        is_eager=True,
+        hidden=True,
+    ),
 ):
     load_dotenv()
     if ctx.invoked_subcommand is None and not version and not docs:
@@ -162,13 +221,19 @@ def docs():
 
 @app.command()
 def init(
-    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing crilio.yaml"),
-    yes: bool = typer.Option(False, "--yes", "-y", help="Non-interactive, use defaults"),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Overwrite existing crilio.yaml"
+    ),
+    yes: bool = typer.Option(
+        False, "--yes", "-y", help="Non-interactive, use defaults"
+    ),
 ):
     """Initialize crilio.yaml — Step 3 of setup."""
     dest = pathlib.Path("crilio.yaml")
     if dest.exists() and not force:
-        err_console.print(f"[yellow]crilio.yaml already exists at {dest} — use --force to overwrite[/]")
+        err_console.print(
+            f"[yellow]crilio.yaml already exists at {dest} — use --force to overwrite[/]"
+        )
         raise typer.Exit(1)
     from crilio.config import dump_yaml
     import yaml as _yaml
@@ -179,9 +244,17 @@ def init(
     dest.write_text(dump_yaml(cfg), encoding="utf-8")
     console.print(f"[green]✓ Created {dest}[/] — {len(cfg.tests)} tests")
     console.print()
-    console.print(Panel.fit("  [yellow]⚠  Please check and modify [cyan]crilio.yaml[/] according to your need[/]\n  [dim]Update prompts and rules to match your app, then run [cyan]crilio run[/][/]", border_style="yellow", padding=(0, 2)))
+    console.print(
+        Panel.fit(
+            "  [yellow]⚠  Please check and modify [bold #FF65C3]crilio.yaml[/] according to your need[/]\n  [dim]Update prompts and rules to match your app, then run [bold #FF65C3]crilio run[/][/]",
+            border_style="yellow",
+            padding=(0, 2),
+        )
+    )
     console.print()
-    console.print("[dim]Next: set [cyan]OPENAI_API_KEY[/] or [cyan]ANTHROPIC_API_KEY[/] → [cyan]crilio run --dry-run[/] → [cyan]crilio run[/][/]")
+    console.print(
+        "[dim]Next: set [bold #FF65C3]OPENAI_API_KEY[/] or [bold #FF65C3]ANTHROPIC_API_KEY[/] → [bold #FF65C3]crilio run --dry-run[/] → [bold #FF65C3]crilio run[/][/]"
+    )
 
     try:
         is_tty = sys.stdin.isatty() and sys.stdout.isatty()
@@ -195,7 +268,11 @@ def init(
         try:
             from rich.prompt import Confirm
 
-            if Confirm.ask("Do you want to automatically setup GitHub Actions to run on every Pull Request?", default=False, console=console):
+            if Confirm.ask(
+                "Do you want to automatically setup GitHub Actions to run on every Pull Request?",
+                default=False,
+                console=console,
+            ):
                 do_gha = True
         except Exception:
             do_gha = False
@@ -231,33 +308,55 @@ jobs:
                     try:
                         from rich.prompt import Confirm
 
-                        should_overwrite = Confirm.ask(f"{wf_path} already exists — replace it?", default=False, console=console)
+                        should_overwrite = Confirm.ask(
+                            f"{wf_path} already exists — replace it?",
+                            default=False,
+                            console=console,
+                        )
                     except Exception:
                         should_overwrite = False
                 if should_overwrite:
                     wf_path.write_text(wf_content, encoding="utf-8")
-                    console.print(f"[green]✓ Created {wf_path}[/] — runs on every Pull Request")
+                    console.print(
+                        f"[green]✓ Created {wf_path}[/] — runs on every Pull Request"
+                    )
                 else:
-                    console.print(f"[yellow]Kept existing {wf_path} — not overwritten[/]")
+                    console.print(
+                        f"[yellow]Kept existing {wf_path} — not overwritten[/]"
+                    )
         else:
             wf_path.write_text(wf_content, encoding="utf-8")
             console.print(f"[green]✓ Created {wf_path}[/] — runs on every Pull Request")
     else:
         if is_tty and not yes:
-            console.print("[dim]Skipped GitHub Actions setup — create .github/workflows/crilio.yml manually to enable CI gate[/]")
+            console.print(
+                "[dim]Skipped GitHub Actions setup — create .github/workflows/crilio.yml manually to enable CI gate[/]"
+            )
 
     raise typer.Exit(0)
 
 
 @app.command()
 def run(
-    config: str = typer.Option("crilio.yaml", "--config", "-c", help="Path to crilio.yaml"),
-    model: Optional[str] = typer.Option(None, "--model", "-m", help="Target model override"),
-    judge_model: Optional[str] = typer.Option(None, "--judge-model", help="Judge model override"),
+    config: str = typer.Option(
+        "crilio.yaml", "--config", "-c", help="Path to crilio.yaml"
+    ),
+    model: Optional[str] = typer.Option(
+        None, "--model", "-m", help="Target model override"
+    ),
+    judge_model: Optional[str] = typer.Option(
+        None, "--judge-model", help="Judge model override"
+    ),
     verbose: bool = typer.Option(False, "--verbose", help="Show full responses"),
-    json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Validate config without calling APIs"),
-    tag: Optional[str] = typer.Option(None, "--tag", help="Only run tests with the specified tag."),
+    json_output: bool = typer.Option(
+        False, "--json", help="Machine-readable JSON output"
+    ),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Validate config without calling APIs"
+    ),
+    tag: Optional[str] = typer.Option(
+        None, "--tag", help="Only run tests with the specified tag."
+    ),
     fail_fast: bool = typer.Option(False, "--fail-fast", help="Stop on first failure"),
 ):
     """Run the quality gate: Target → Judge → pass/fail."""
@@ -267,7 +366,7 @@ def run(
         cfg = load_config(config)
     except FileNotFoundError as e:
         err_console.print(f"[red]{e}[/]")
-        err_console.print("Run [cyan]crilio init[/] to create one.")
+        err_console.print("Run [bold #FF65C3]crilio init[/] to create one.")
         raise typer.Exit(2)
     except Exception as e:
         err_console.print(f"[red]Invalid config {config}: {e}[/]")
@@ -277,9 +376,13 @@ def run(
         original_count = len(cfg.tests)
         cfg.tests = [test for test in cfg.tests if tag in (test.tags or [])]
         if not cfg.tests:
-            console.print(f"[yellow]No tests found with tag '{tag}'. Running 0 tests.[/yellow]")
+            console.print(
+                f"[yellow]No tests found with tag '{tag}'. Running 0 tests.[/yellow]"
+            )
             raise typer.Exit(0)
-        console.print(f"[grey]Filtering by tag '{tag}': Running {len(cfg.tests)} of {original_count} tests.[/grey]")
+        console.print(
+            f"[grey]Filtering by tag '{tag}': Running {len(cfg.tests)} of {original_count} tests.[/grey]"
+        )
 
     from crilio.provider import infer_provider_from_env
 
@@ -290,6 +393,7 @@ def run(
             provider=cfg.provider or inferred,
             model=model or cfg.model,
             judge_model=judge_model or cfg.judge_model,
+            base_url=cfg.base_url,
             api_key=None,
             fallback_provider=fallback,
         )
@@ -301,9 +405,19 @@ def run(
         n_tests = len(cfg.tests)
         n_rules = sum(len(t.rules) for t in cfg.tests)
         if json_output:
-            console.print_json(data={"dry_run": True, "tests": n_tests, "rules": n_rules, "provider": global_provider.name, "model": global_provider.model})
+            console.print_json(
+                data={
+                    "dry_run": True,
+                    "tests": n_tests,
+                    "rules": n_rules,
+                    "provider": global_provider.name,
+                    "model": global_provider.model,
+                }
+            )
         else:
-            console.print(f"[green]✓[/] Config valid — [bold]{n_tests}[/] tests • [bold]{n_rules}[/] rules • provider=[cyan]{global_provider.name}[/] model=[cyan]{global_provider.model}[/]")
+            console.print(
+                f"[green]✓[/] Config valid — [bold]{n_tests}[/] tests • [bold]{n_rules}[/] rules • provider=[bold #FF65C3]{global_provider.name}[/] model=[bold #FF65C3]{global_provider.model}[/]"
+            )
         raise typer.Exit(0)
 
     if not global_provider.api_key:
@@ -313,19 +427,23 @@ def run(
         other_env = PROVIDER_DEFAULTS[other_provider]["env_key"]
         other_hint = "sk-..." if other_provider == "openai" else "..."
         if json_output:
-            console.print_json(data={
-                "error": f"Missing credentials: {env_hint} not set",
-                "hint": f"export {env_hint}={key_hint} (or use {other_env}={other_hint}; add the key to .env or GitHub Secrets)",
-            })
+            console.print_json(
+                data={
+                    "error": f"Missing credentials: {env_hint} not set",
+                    "hint": f"export {env_hint}={key_hint} (or use {other_env}={other_hint}; add the key to .env or GitHub Secrets)",
+                }
+            )
         else:
-            err_console.print(Panel(
-                f"[red]Missing credentials[/] — set {env_hint}\n\n"
-                f"  export {env_hint}={key_hint}\n"
-                f"  or export {other_env}={other_hint}\n"
-                "  [dim]Add the key to .env or GitHub Secrets[/]",
-                title="auth error",
-                border_style="red",
-            ))
+            err_console.print(
+                Panel(
+                    f"[red]Missing credentials[/] — set {env_hint}\n\n"
+                    f"  export {env_hint}={key_hint}\n"
+                    f"  or export {other_env}={other_hint}\n"
+                    "  [dim]Add the key to .env or GitHub Secrets[/]",
+                    title="auth error",
+                    border_style="red",
+                )
+            )
         raise typer.Exit(2)
 
     def _pct(spent: float, cap: float) -> str:
@@ -338,14 +456,50 @@ def run(
         return f"${spent:.2f} / ${cap:.2f} ({_pct(spent, cap)}%)"
 
     budget = cfg.max_monthly_budget_usd
-    console.print("[bold]🧪 Crilio Test Runner[/]")
-    if budget is not None:
-        console.print(f"Budget: {_budget_str(0, budget)}")
-    console.print(f"[dim]Found {len(cfg.tests)} test(s)...[/]")
-    console.print()
-
+    n_tests = len(cfg.tests)
+    n_rules = sum(len(t.rules) for t in cfg.tests)
+    targets = []
+    for t in cfg.tests:
+        if t.target and t.target.command:
+            cmd = t.target.command.strip()
+            short = (
+                "local: bot.py"
+                if "bot.py" in cmd
+                else "local: ollama"
+                if "ollama" in cmd
+                else f"local: {cmd.split()[0]}"
+            )
+            targets.append(short)
+        else:
+            targets.append(
+                f"{t.provider or cfg.provider or global_provider.name}/{t.model or cfg.model or global_provider.model}"
+            )
+    uniq_targets = sorted(set(targets))
+    target_str = (
+        ", ".join(uniq_targets)
+        if len(uniq_targets) <= 2
+        else f"{uniq_targets[0]} +{len(uniq_targets) - 1} more"
+    )
     if not json_output:
-        console.print(Panel.fit(f"[bold]Crilio gate[/] • {len(cfg.tests)} tests • {sum(len(t.rules) for t in cfg.tests)} rules • [cyan]{global_provider.name}[/]/[cyan]{global_provider.model}[/] → judge [cyan]{global_provider.judge_model}[/]", border_style="dim"))
+        console.print()
+        names = ", ".join(t.name for t in cfg.tests[:3])
+        if len(cfg.tests) > 3:
+            names += f" +{len(cfg.tests) - 3} more"
+        console.print(
+            Text("crilio eval", style="bold #FF65C3")
+            + Text(f"  —  {n_tests} tests ({names})", style="dim")
+        )
+        console.print(
+            Text(f"Target  {target_str}", style="dim")
+            + Text(f"  →  Judge  {global_provider.judge_model}", style="bold #FF65C3")
+        )
+        budget_line = Text(
+            f"Budget  {_budget_str(0, budget)}" if budget is not None else "Budget  —",
+            style="dim",
+        )
+        budget_line.append(f"  ·  {n_rules} rules", style="dim")
+        console.print(budget_line)
+        console.print(Rule(style="#FF65C3"))
 
     results: list[dict] = []
     total_pass = 0
@@ -357,9 +511,11 @@ def run(
     stopped_early = False
 
     for idx, test in enumerate(cfg.tests, 1):
+        if not json_output:
+            console.print(Text(f"  →  Running {idx}/{len(cfg.tests)}: {test.name}...", style="dim"))
         if test.skip:
             if not json_output:
-                console.print(f"[dim]Test {idx}: {test.name} [yellow]SKIPPED[/] — skip: true[/]")
+                console.print(Text(f"     {idx:02d}  {test.name}  SKIP", style="yellow"))
             continue
         is_command = bool(test.target and test.target.command)
         if is_command:
@@ -385,7 +541,9 @@ def run(
                 "cost_usd": 0.0,
             }
             try:
-                target_res = call_target_command(test.target.command, test.prompt, timeout=30)
+                target_res = call_target_command(
+                    test.target.command, test.prompt, timeout=30
+                )
                 per_test["response"] = target_res.response
                 per_test["latency_ms"] = target_res.latency_ms
                 per_test["input_tokens"] += target_res.usage.input_tokens
@@ -396,19 +554,26 @@ def run(
                 per_test["response"] = f"[target error] {msg}"
                 per_test["passed"] = False
                 for rule in test.rules:
-                    per_test["rules"].append({"rule": rule, "passed": False, "reasoning": msg[:200]})
+                    per_test["rules"].append(
+                        {"rule": rule, "passed": False, "reasoning": msg[:200]}
+                    )
                     total_fail += 1
                 results.append(per_test)
                 if not json_output:
-                    _render_test_simple(idx, per_test, budget, total_cost)
-                    _render_test(console, per_test, verbose)
                     if not per_test["passed"]:
                         for r in per_test["rules"]:
                             if not r["passed"]:
-                                _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
+                                _post_github_pr_comment(
+                                    per_test["name"],
+                                    r["rule"],
+                                    per_test["response"],
+                                    r["reasoning"],
+                                )
                 if fail_fast and not per_test["passed"]:
                     if not json_output:
-                        console.print(f"[yellow]Fail-fast: stopping after {len(results)}/{len(cfg.tests)} tests[/]")
+                        console.print(
+                            f"[yellow]Fail-fast: stopping after {len(results)}/{len(cfg.tests)} tests[/]"
+                        )
                     break
                 continue
         else:
@@ -435,7 +600,13 @@ def run(
             }
             try:
                 tgt_client = make_client(tgt_provider)
-                target_res = call_target(tgt_client, provider=tgt_provider.name, model=tgt_provider.model, prompt=test.prompt, system=test.system or cfg.system)
+                target_res = call_target(
+                    tgt_client,
+                    provider=tgt_provider.name,
+                    model=tgt_provider.model,
+                    prompt=test.prompt,
+                    system=test.system or cfg.system,
+                )
                 per_test["response"] = target_res.response
                 per_test["latency_ms"] = target_res.latency_ms
                 per_test["input_tokens"] += target_res.usage.input_tokens
@@ -443,29 +614,47 @@ def run(
                 per_test["cost_usd"] += target_res.cost_usd
             except Exception as e:
                 msg = str(e)
-                is_auth = "api_key" in msg.lower() or "credentials" in msg.lower() or "401" in msg
+                is_auth = (
+                    "api_key" in msg.lower()
+                    or "credentials" in msg.lower()
+                    or "401" in msg
+                )
                 if is_auth:
                     if json_output:
-                        console.print_json(data={"error": msg, "hint": f"check {PROVIDER_DEFAULTS[tgt_provider.name]['env_key']}"})
+                        console.print_json(
+                            data={
+                                "error": msg,
+                                "hint": f"check {PROVIDER_DEFAULTS[tgt_provider.name]['env_key']}",
+                            }
+                        )
                     else:
-                        err_console.print(Panel(msg, title="auth error", border_style="red"))
+                        err_console.print(
+                            Panel(msg, title="auth error", border_style="red")
+                        )
                     raise typer.Exit(2)
                 per_test["response"] = f"[target error] {msg}"
                 per_test["passed"] = False
                 for rule in test.rules:
-                    per_test["rules"].append({"rule": rule, "passed": False, "reasoning": msg[:200]})
+                    per_test["rules"].append(
+                        {"rule": rule, "passed": False, "reasoning": msg[:200]}
+                    )
                     total_fail += 1
                 results.append(per_test)
                 if not json_output:
-                    _render_test_simple(idx, per_test, budget, total_cost)
-                    _render_test(console, per_test, verbose)
                     if not per_test["passed"]:
                         for r in per_test["rules"]:
                             if not r["passed"]:
-                                _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
+                                _post_github_pr_comment(
+                                    per_test["name"],
+                                    r["rule"],
+                                    per_test["response"],
+                                    r["reasoning"],
+                                )
                 if fail_fast and not per_test["passed"]:
                     if not json_output:
-                        console.print(f"[yellow]Fail-fast: stopping after {len(results)}/{len(cfg.tests)} tests[/]")
+                        console.print(
+                            f"[yellow]Fail-fast: stopping after {len(results)}/{len(cfg.tests)} tests[/]"
+                        )
                     break
                 continue
 
@@ -475,13 +664,23 @@ def run(
             if json_output:
                 console.print_json(data={"error": str(e)})
             else:
-                err_console.print(Panel(str(e), title="auth error — judge", border_style="red"))
+                err_console.print(
+                    Panel(str(e), title="auth error — judge", border_style="red")
+                )
             raise typer.Exit(2)
 
         all_pass = True
         for rule in test.rules:
-            jr = judge_rule(judge_client, provider=judge_provider.name, judge_model=judge_provider.judge_model, response=target_res.response, rule=rule)
-            per_test["rules"].append({"rule": jr.rule, "passed": jr.passed, "reasoning": jr.reasoning})
+            jr = judge_rule(
+                judge_client,
+                provider=judge_provider.name,
+                judge_model=judge_provider.judge_model,
+                response=target_res.response,
+                rule=rule,
+            )
+            per_test["rules"].append(
+                {"rule": jr.rule, "passed": jr.passed, "reasoning": jr.reasoning}
+            )
             per_test["input_tokens"] += jr.usage.input_tokens
             per_test["output_tokens"] += jr.usage.output_tokens
             per_test["cost_usd"] += jr.cost_usd
@@ -495,28 +694,70 @@ def run(
         total_cost += per_test["cost_usd"]
         total_input_tokens += per_test["input_tokens"]
         total_output_tokens += per_test["output_tokens"]
-        if not json_output:
-            _render_test_simple(idx, per_test, budget, total_cost)
-            _render_test(console, per_test, verbose)
-            if not per_test["passed"]:
-                for r in per_test["rules"]:
-                    if not r["passed"]:
-                        _post_github_pr_comment(per_test["name"], r["rule"], per_test["response"], r["reasoning"])
+        if not json_output and not per_test["passed"]:
+            for r in per_test["rules"]:
+                if not r["passed"]:
+                    _post_github_pr_comment(
+                        per_test["name"],
+                        r["rule"],
+                        per_test["response"],
+                        r["reasoning"],
+                    )
         if fail_fast and not per_test["passed"]:
             if not json_output:
-                console.print(f"[yellow]Fail-fast: stopping after {len(results)}/{len(cfg.tests)} tests[/]")
+                console.print(
+                    f"[yellow]Fail-fast: stopping after {len(results)}/{len(cfg.tests)} tests[/]"
+                )
             break
         if budget is not None and total_cost > budget:
             budget_exceeded = True
             stopped_early = True
             if not json_output:
-                console.print(f"[red]Budget exceeded: {_budget_str(total_cost, budget)} — stopping. {len(cfg.tests)-idx} test(s) skipped.[/]")
+                console.print(
+                    f"[red]Budget exceeded: {_budget_str(total_cost, budget)} — stopping. {len(cfg.tests) - idx} test(s) skipped.[/]"
+                )
             break
 
     elapsed = time.perf_counter() - t_start
     gate_passed = total_fail == 0
     if budget is not None and total_cost > budget:
         budget_exceeded = True
+
+    if not json_output and results:
+        from rich.box import ROUNDED
+
+        eval_tbl = Table(
+            show_header=True,
+            header_style="bold #FF65C3",
+            box=ROUNDED,
+            padding=(0, 1),
+            show_lines=True,
+        )
+        eval_tbl.add_column("Test", style="bold white", no_wrap=True)
+        eval_tbl.add_column(
+            "Prompt", style="dim", ratio=1, min_width=24, overflow="fold"
+        )
+        eval_tbl.add_column(
+            "Output", style="white", ratio=1, min_width=24, overflow="fold"
+        )
+        eval_tbl.add_column("Verdict", justify="center", no_wrap=True, width=7)
+        for r in results:
+            passed = r["passed"]
+            verdict = (
+                Text("PASS", style="green")
+                if passed
+                else Text("FAIL", style="red bold")
+            )
+            prompt = r["prompt"].replace("\n", " ")
+            output = r["response"].replace("\n", " ")
+            eval_tbl.add_row(
+                Text(r["name"][:22], style="white"),
+                Text(prompt, style="dim"),
+                Text(output, style="white"),
+                verdict,
+            )
+        console.print(eval_tbl)
+        console.print()
 
     if json_output:
         gate_passed = gate_passed and not budget_exceeded
@@ -540,30 +781,33 @@ def run(
     else:
         gate_passed = gate_passed and not budget_exceeded
         _render_summary(gate_passed, total_pass, total_fail, elapsed, budget_exceeded)
-        if budget is not None:
-            console.print(f"Final Budget: {_budget_str(total_cost, budget)}")
-            remaining = max(0, budget - total_cost)
-            console.print(f"Remaining: ${remaining:.2f}")
-            if stopped_early:
-                console.print(f"[yellow]Stopped early — budget exceeded after {len(results)}/{len(cfg.tests)} tests[/]")
-        else:
-            console.print(
-                f"[dim]Usage: {total_input_tokens + total_output_tokens:,} tokens • "
-                f"estimated cost ${total_cost:.6f}[/]"
+        cost_line = Text(f"Cost  ${total_cost:.4f}", style="dim")
+        cost_line.append(
+            f"  ·  {total_input_tokens + total_output_tokens:,} tokens", style="dim"
+        )
+        if budget is not None and total_cost > 0:
+            cost_line.append(
+                f"  ·  Budget {_budget_str(total_cost, budget)}", style="dim"
             )
+        if stopped_early:
+            cost_line.append(
+                f"  ·  Stopped early {len(results)}/{len(cfg.tests)}", style="yellow"
+            )
+        console.print(cost_line)
 
-    gha_enabled = pathlib.Path(".github/workflows/crilio.yml").exists() or os.getenv("GITHUB_ACTIONS") == "true"
-    if not gha_enabled:
-        if not gate_passed:
-            console.print("[yellow]Note: Gate failed locally — not blocking (GitHub Actions not enabled). Enable via crilio init → Yes to GitHub Actions[/]")
-        raise typer.Exit(0)
-    raise typer.Exit(0 if gate_passed else 1)
+    if _is_pr():
+        raise typer.Exit(0 if gate_passed else 1)
+    raise typer.Exit(0)
 
 
 @app.command()
 def validate(
-    config: str = typer.Option("crilio.yaml", "--config", "-c", help="Path to crilio.yaml"),
-    json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON output"),
+    config: str = typer.Option(
+        "crilio.yaml", "--config", "-c", help="Path to crilio.yaml"
+    ),
+    json_output: bool = typer.Option(
+        False, "--json", help="Machine-readable JSON output"
+    ),
 ):
     """Validate configuration without calling provider APIs."""
     try:
@@ -580,7 +824,7 @@ def validate(
             console.print_json(data={"valid": False, "error": message})
         else:
             err_console.print(f"[red]✗ {message}[/]")
-            err_console.print("Run [cyan]crilio init[/] to create one.")
+            err_console.print("Run [bold #FF65C3]crilio init[/] to create one.")
         raise typer.Exit(2)
     except Exception as error:
         message = str(error)
@@ -616,13 +860,16 @@ def validate(
         console.print(f"  Budget: {budget_text}")
         if budget is not None:
             console.print(f"  Remaining on fresh run: ${budget:.2f}")
+        console.print(Text("Tip: crilio run --dry-run  ·  crilio ls", style="dim"))
     raise typer.Exit(0)
 
 
 @app.command("ls")
 @app.command("list", hidden=True)
 def list_tests(
-    config: str = typer.Option("crilio.yaml", "--config", "-c", help="Path to crilio.yaml"),
+    config: str = typer.Option(
+        "crilio.yaml", "--config", "-c", help="Path to crilio.yaml"
+    ),
     tag: Optional[str] = typer.Option(None, "--tag", help="Filter by tag"),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON"),
 ):
@@ -636,46 +883,101 @@ def list_tests(
     if tag:
         tests = [t for t in tests if tag in (t.tags or [])]
     if json_output:
-        console.print_json(data=[{"name": t.name, "tags": t.tags or [], "skip": t.skip, "rules": len(t.rules), "target": t.target.command if t.target else f"{t.provider or cfg.provider}/{t.model or cfg.model}"} for t in tests])
+        console.print_json(
+            data=[
+                {
+                    "name": t.name,
+                    "tags": t.tags or [],
+                    "skip": t.skip,
+                    "rules": len(t.rules),
+                    "target": t.target.command
+                    if t.target
+                    else f"{t.provider or cfg.provider}/{t.model or cfg.model}",
+                }
+                for t in tests
+            ]
+        )
         raise typer.Exit(0)
-    tbl = Table(show_header=True, header_style="dim", box=None, padding=(0, 1))
-    tbl.add_column("#", width=3)
-    tbl.add_column("Test", ratio=1)
-    tbl.add_column("Tags", ratio=1)
-    tbl.add_column("Rules", width=6, justify="center")
-    tbl.add_column("Target", ratio=1)
+
+    c = console
+    n_total = len(cfg.tests)
+    c.print()
+    c.print(
+        f"[bold #FF65C3]crilio[/]  ·  [bold]{len(tests)} test{'s' if len(tests) != 1 else ''}[/] in {config}"
+    )
+    c.print("[dim]" + "─" * (c.width if c.width else 80) + "[/]")
+    c.print()
+
+    tbl = Table(show_header=True, header_style="#FF65C3", box=None, padding=(0, 2))
+    tbl.add_column("#", width=3, style="#FF65C3")
+    tbl.add_column("Test", ratio=1, style="white")
+    tbl.add_column("Tags", ratio=1, style="#FF65C3")
+    tbl.add_column("Rules", width=6, justify="center", style="yellow")
+    tbl.add_column("Target", ratio=1, style="dim")
     for idx, t in enumerate(tests, 1):
-        status = " [yellow]skip[/]" if t.skip else ""
         tags = ", ".join(t.tags or []) or "[dim]—[/]"
-        target = t.target.command[:40] + "…" if t.target and len(t.target.command) > 40 else (t.target.command if t.target else f"{t.provider or cfg.provider or 'openai'}/{t.model or cfg.model or 'gpt-4o-mini'}")
-        tbl.add_row(str(idx), f"{t.name}{status}", tags, str(len(t.rules)), target)
-    console.print(tbl)
-    console.print(f"[dim]{len(tests)}/{len(cfg.tests)} tests shown[/]")
+        target = (
+            t.target.command[:40] + "…"
+            if t.target and len(t.target.command) > 40
+            else (
+                t.target.command
+                if t.target
+                else f"{t.provider or cfg.provider or 'openai'}/{t.model or cfg.model or 'gpt-4o-mini'}"
+            )
+        )
+        name = t.name
+        if t.skip:
+            name = f"{name} [yellow](skipped)[/]"
+        tbl.add_row(str(idx), name, tags, str(len(t.rules)), target)
+    c.print(tbl)
+    c.print()
+    c.print(f"[dim]{len(tests)}/{n_total} tests shown[/]")
+    if len(tests) > 1 and not tag:
+        c.print(
+            Text(
+                "Tip: crilio run --tag <tag>  ·  crilio ls --tag smoke --json",
+                style="dim",
+            )
+        )
     raise typer.Exit(0)
 
 
 @app.command()
 def diff(
     base: str = typer.Option("main", "--base", "-b", help="Base git ref"),
-    config: str = typer.Option("crilio.yaml", "--config", "-c", help="Path to crilio.yaml"),
+    config: str = typer.Option(
+        "crilio.yaml", "--config", "-c", help="Path to crilio.yaml"
+    ),
     json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON"),
-    fail_on_change: bool = typer.Option(False, "--fail-on-change", help="Exit 1 if changes"),
+    fail_on_change: bool = typer.Option(
+        False, "--fail-on-change", help="Exit 1 if changes"
+    ),
 ):
     """Show prompt/rule diff between git refs."""
+
     def _load_ref(ref: str):
         try:
-            r = subprocess.run(["git", "show", f"{ref}:{config}"], capture_output=True, text=True, timeout=5)
+            r = subprocess.run(
+                ["git", "show", f"{ref}:{config}"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
             if r.returncode == 0:
                 return yaml.safe_load(r.stdout) or {}
         except Exception:
             pass
         return None
+
     def _load_cur():
         try:
-            return yaml.safe_load(pathlib.Path(config).read_text(encoding="utf-8")) or {}
+            return (
+                yaml.safe_load(pathlib.Path(config).read_text(encoding="utf-8")) or {}
+            )
         except Exception as e:
             err_console.print(f"[red]Invalid config {config}: {e}[/]")
             raise typer.Exit(2)
+
     cur = _load_cur()
     base_data = _load_ref(base)
     if base_data is None:
@@ -689,11 +991,13 @@ def diff(
         if base_data is None:
             err_console.print(f"[yellow]No base {base} found — showing current only[/]")
             base_data = {"tests": []}
+
     def _map(d):
         m = {}
         for t in d.get("tests") or []:
             m[t.get("name")] = t
         return m
+
     bmap, cmap = _map(base_data), _map(cur)
     changes = []
     for name in sorted(set(list(bmap.keys()) + list(cmap.keys()))):
@@ -703,17 +1007,39 @@ def diff(
         elif c is None:
             changes.append({"test": name, "field": "test", "change": "removed"})
         else:
-            for f in ["prompt", "rules", "tags", "target", "system", "provider", "model"]:
+            for f in [
+                "prompt",
+                "rules",
+                "tags",
+                "target",
+                "system",
+                "provider",
+                "model",
+            ]:
                 if b.get(f) != c.get(f):
-                    changes.append({"test": name, "field": f, "before": b.get(f), "after": c.get(f)})
+                    changes.append(
+                        {
+                            "test": name,
+                            "field": f,
+                            "before": b.get(f),
+                            "after": c.get(f),
+                        }
+                    )
     if json_output:
-        console.print_json(data={"base": base, "config": config, "changes": changes, "count": len(changes)})
+        console.print_json(
+            data={
+                "base": base,
+                "config": config,
+                "changes": changes,
+                "count": len(changes),
+            }
+        )
         raise typer.Exit(1 if fail_on_change and changes else 0)
     if not changes:
         console.print(f"[green]No changes[/] — {base} → HEAD ({len(cmap)} tests)")
         raise typer.Exit(0)
     tbl = Table(show_header=True, header_style="dim", box=None, padding=(0, 1))
-    tbl.add_column("Test", style="cyan", no_wrap=True)
+    tbl.add_column("Test", style="#FF65C3", no_wrap=True)
     tbl.add_column("Field", style="yellow", no_wrap=True)
     tbl.add_column("Change", ratio=1)
     display_rows = 0
@@ -722,7 +1048,11 @@ def diff(
             tbl.add_row(ch["test"], ch["field"], f"[bold]{ch['change']}[/]")
             display_rows += 1
         else:
-            if ch["field"] in ("rules", "tags") and isinstance(ch["before"], list) and isinstance(ch["after"], list):
+            if (
+                ch["field"] in ("rules", "tags")
+                and isinstance(ch["before"], list)
+                and isinstance(ch["after"], list)
+            ):
                 b_set, c_set = set(ch["before"] or []), set(ch["after"] or [])
                 for added in sorted(c_set - b_set):
                     tbl.add_row(ch["test"], ch["field"], f"[green]+ {added}[/]")
@@ -731,59 +1061,138 @@ def diff(
                     tbl.add_row(ch["test"], ch["field"], f"[red]- {removed}[/]")
                     display_rows += 1
             else:
-                before = str(ch["before"])[:120].replace("\n", " ") if ch["before"] is not None else "[dim]—[/]"
-                after = str(ch["after"])[:120].replace("\n", " ") if ch["after"] is not None else "[dim]—[/]"
-                tbl.add_row(ch["test"], ch["field"], f"[red]- {before}[/]\n[green]+ {after}[/]")
+                before = (
+                    str(ch["before"])[:120].replace("\n", " ")
+                    if ch["before"] is not None
+                    else "[dim]—[/]"
+                )
+                after = (
+                    str(ch["after"])[:120].replace("\n", " ")
+                    if ch["after"] is not None
+                    else "[dim]—[/]"
+                )
+                tbl.add_row(
+                    ch["test"], ch["field"], f"[red]- {before}[/]\n[green]+ {after}[/]"
+                )
                 display_rows += 1
-    console.print(Panel(tbl, title=f"[bold]Diff: {base} → HEAD[/]", border_style="dim", padding=(0, 1)))
+    console.print(
+        Panel(
+            tbl,
+            title=f"[bold #FF65C3]Diff: {base} → HEAD[/]",
+            border_style="#FF65C3",
+            padding=(0, 1),
+        )
+    )
     word = "change" if display_rows == 1 else "changes"
     console.print(f"[dim]{display_rows} {word} — {base} → HEAD ({len(cmap)} tests)[/]")
+    if changes and not json_output:
+        console.print(
+            Text("Tip: crilio run --fail-fast  ·  crilio ls --tag <tag>", style="dim")
+        )
     raise typer.Exit(1 if fail_on_change and changes else 0)
 
 
-def _render_test_simple(idx: int, test: dict, budget: float | None = None, spent: float = 0):
-    status = "✅" if test["passed"] else "❌"
+def _render_test_simple(
+    idx: int, test: dict, budget: float | None = None, spent: float = 0
+):
+    status = "PASS" if test["passed"] else "FAIL"
+    style = "green" if test["passed"] else "red"
+    badge = Text(f" {status} ", style=f"bold {style} reverse")
     cost = test.get("cost_usd", 0)
-    console.print(f"\n[bold]Test {idx}: {test['name']} {status} (${cost:.2f})[/]")
+    num = f"{idx:02d}"
+    console.print()
+    line = Text()
+    line.append(f"{num}", style="dim")
+    line.append(f"  {test['name']}  ", style="bold white")
+    line.append(badge)
+    console.print(line)
     if not test["passed"]:
         for r in test["rules"]:
             if not r["passed"]:
-                console.print(f"   Reason: {r.get('reasoning','')[:200]}")
+                console.print(
+                    Text(f"   → {r.get('reasoning', '')[:140]}", style="yellow")
+                )
                 break
-    else:
-        console.print(f"   Reason: All {len(test['rules'])} rules passed")
-    console.print(f"   [dim]{test['provider']}/{test['model']} • {test['latency_ms']}ms[/]")
+    meta = Text(
+        f"   {test['provider']}/{test['model']}  {test['latency_ms']}ms  ${cost:.4f}",
+        style="dim",
+    )
     if budget is not None:
         pct = (spent / budget * 100) if budget else 0
-        pct_s = f"{pct:.2f}".rstrip("0").rstrip(".")
-        console.print(f"   → Budget: ${spent:.2f} / ${budget:.2f} ({pct_s}%)")
+        pct_s = f"{pct:.0f}"
+        meta.append(f"  ·  Budget {pct_s}%", style="dim")
+    console.print(meta)
 
 
 def _render_test(console: Console, test: dict, verbose: bool):
     resp = test["response"] or "[empty]"
-    preview = resp if verbose else (resp[:480] + ("…" if len(resp) > 480 else ""))
-    console.print(Panel(preview, title="response", border_style="dim", padding=(0, 1)))
-    tbl = Table(show_header=True, header_style="dim", box=None, padding=(0, 1))
-    tbl.add_column("", width=2)
-    tbl.add_column("Rule", ratio=1)
-    tbl.add_column("Verdict", width=8, justify="center")
-    tbl.add_column("Reason", ratio=1, style="dim")
+    preview = resp if verbose else (resp[:320] + ("…" if len(resp) > 320 else ""))
+    prompt = test.get("prompt", "")
+    if prompt and prompt.strip() != resp.strip():
+        console.print(Text(f"   prompt: {prompt[:100]}", style="dim"))
+        console.print()
+    console.print(
+        Panel(
+            preview,
+            title="[dim]output[/]",
+            border_style="dim",
+            padding=(0, 1),
+            width=min(78, console.width - 8),
+        )
+    )
+    tbl = Table(show_header=False, box=None, padding=(0, 1), show_lines=False)
+    tbl.add_column("", width=2, no_wrap=True)
+    tbl.add_column("Rule", ratio=1, min_width=20)
+    tbl.add_column("Verdict", width=7, justify="center", no_wrap=True)
     for r in test["rules"]:
         icon = Text("●", style="green" if r["passed"] else "red")
-        verdict = Text("PASS", style="green") if r["passed"] else Text("FAIL", style="red bold")
-        tbl.add_row(icon, r["rule"], verdict, r.get("reasoning", "")[:120])
+        verdict = (
+            Text("PASS", style="green")
+            if r["passed"]
+            else Text("FAIL", style="red bold")
+        )
+        tbl.add_row(icon, r["rule"], verdict)
     console.print(tbl)
 
 
-def _render_summary(passed: bool, ok: int, fail: int, elapsed: float, budget_exceeded: bool = False):
+def _is_pr() -> bool:
+    if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
+        return True
+    ref = os.getenv("GITHUB_REF", "")
+    if ref.startswith("refs/pull/"):
+        return True
+    return False
+
+
+def _render_summary(
+    passed: bool, ok: int, fail: int, elapsed: float, budget_exceeded: bool = False
+):
     total = ok + fail
+    console.print(Rule(style="#FF65C3"))
     if passed:
-        console.print(f"\n[green bold]✓ Gate passed[/] — {ok}/{total} rules • {elapsed:.1f}s")
+        label = Text(
+            f"Gate  PASS  —  {ok}/{total} rules  ·  {elapsed:.1f}s",
+            style="bold #FF65C3",
+        )
+        label.append(
+            "  ·  Local run — not blocking"
+            if not _is_pr()
+            else "  ·  ✓ PR can be merged",
+            style="dim",
+        )
+        console.print(label)
     else:
-        reason = "budget exceeded" if budget_exceeded and fail == 0 else f"{fail}/{total} FAILED"
-        console.print(f"\n[red bold]✗ Gate failed[/] — {reason} • {elapsed:.1f}s")
-        if pathlib.Path(".github/workflows/crilio.yml").exists() or os.getenv("GITHUB_ACTIONS") == "true":
-            console.print("[dim]blocking PR[/]")
+        reason = (
+            "budget exceeded"
+            if budget_exceeded and fail == 0
+            else f"{fail}/{total} FAILED"
+        )
+        label = Text(f"Gate  FAIL  —  {reason}  ·  {elapsed:.1f}s", style="bold red")
+        label.append(
+            "  ·  Local run — not blocking" if not _is_pr() else "  ·  ✗ blocking PR",
+            style="dim",
+        )
+        console.print(label)
 
 
 if __name__ == "__main__":

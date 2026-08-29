@@ -117,9 +117,13 @@ def load_config(path: str | pathlib.Path) -> CrilioConfig:
         raise FileNotFoundError(f"config not found: {p}")
     text = p.read_text(encoding="utf-8")
     if _LEAK_RE.search(text):
-        raise ValueError("Potential API key detected in crilio.yaml — remove keys, use .env / GitHub Secrets (OPENAI_API_KEY / ANTHROPIC_API_KEY) instead")
+        raise ValueError(
+            "Potential API key detected in crilio.yaml — remove keys, use .env / GitHub Secrets (OPENAI_API_KEY / ANTHROPIC_API_KEY) instead"
+        )
     if re.search(r"(?i)\bapi[_-]?key\s*:", text):
-        raise ValueError("Potential api_key field detected in crilio.yaml — use env var instead")
+        raise ValueError(
+            "Potential api_key field detected in crilio.yaml — use env var instead"
+        )
     raw = yaml.safe_load(text)
     if not isinstance(raw, dict):
         raise ValueError("crilio.yaml must be a mapping")
@@ -146,8 +150,12 @@ def load_config(path: str | pathlib.Path) -> CrilioConfig:
 
 def dump_yaml(cfg: CrilioConfig) -> str:
     data: dict = {}
-    target_model = cfg.model or (cfg.settings.target_model if cfg.settings else "gpt-4o")
-    judge_model = cfg.judge_model or (cfg.settings.judge_model if cfg.settings else "gpt-4o-mini")
+    target_model = cfg.model or (
+        cfg.settings.target_model if cfg.settings else "gpt-4o"
+    )
+    judge_model = cfg.judge_model or (
+        cfg.settings.judge_model if cfg.settings else "gpt-4o-mini"
+    )
     data["settings"] = {
         "target_model": target_model,
         "judge_model": judge_model,

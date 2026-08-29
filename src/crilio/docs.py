@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import io
-import re
 import sys
 
 from rich.console import Console
@@ -275,6 +274,7 @@ Release: `python -m build && twine upload dist/*` → `pip install crilio` (or `
 *Tip: Start with the generated config, make one prompt change, and run the gate before shipping.*
 """
 
+
 def _render_lines(width: int = 100) -> list[str]:
     buf = io.StringIO()
     c = Console(file=buf, width=width, force_terminal=True, legacy_windows=False)
@@ -324,7 +324,7 @@ def show_docs(console: Console | None = None) -> None:
             end = min(offset + view_h, total)
             chunk = "\n".join(lines[offset:end])
             pct = int(end / total * 100) if total else 100
-            bar = f"  [dim]{offset+1}-{end}/{total} {pct}%[/]  [bright_cyan]↑/k[/] up  [bright_cyan]↓/j/space[/] down  [bright_cyan]PgUp/PgDn[/]  [bright_cyan]g/G[/] top/bottom  [bright_cyan]q[/] quit  "
+            bar = f"  [dim]{offset + 1}-{end}/{total} {pct}%[/]  [bright_cyan]↑/k[/] up  [bright_cyan]↓/j/space[/] down  [bright_cyan]PgUp/PgDn[/]  [bright_cyan]g/G[/] top/bottom  [bright_cyan]q[/] quit  "
             c.file.write(chunk + "\n\n")
             c.print(Panel(bar, border_style="bright_black", padding=(0, 1), height=3))
             k = _get_key()

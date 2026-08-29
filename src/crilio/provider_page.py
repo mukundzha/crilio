@@ -1,17 +1,18 @@
 from __future__ import annotations
 
 import os
-import pathlib
 import sys
 
 from crilio.provider import PROVIDER_DEFAULTS
 from crilio.setup import load_dotenv_if_exists, mask_key, persist_env, validate_key
+
 
 def _status_for() -> tuple[str, str]:
     key = os.getenv("OPENAI_API_KEY") or ""
     if key:
         return ("configured", mask_key(key))
     return ("missing", "-")
+
 
 def show_provider_page(
     provider: str | None = None,
@@ -25,6 +26,7 @@ def show_provider_page(
     load_dotenv_if_exists()
     if json_output:
         import json
+
         data = {
             name: {
                 "env_key": defaults["env_key"],
@@ -66,7 +68,10 @@ def show_provider_page(
         return 0
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         print("Usage:", file=sys.stderr)
-        print("  crilio provider --provider openai|anthropic --api-key ... --yes", file=sys.stderr)
+        print(
+            "  crilio provider --provider openai|anthropic --api-key ... --yes",
+            file=sys.stderr,
+        )
         print("  crilio provider --list", file=sys.stderr)
         print("  crilio provider --list --json", file=sys.stderr)
         return 2

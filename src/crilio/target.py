@@ -17,6 +17,7 @@ class TargetResult:
     usage: Usage
     cost_usd: float
 
+
 SYSTEM_PROMPT = (
     "<role>You are a deterministic, production-grade AI execution engine.</role>\n"
     "<objective>Fulfill the user's prompt with absolute precision. Adhere strictly to all provided constraints.</objective>\n"
@@ -28,6 +29,7 @@ SYSTEM_PROMPT = (
     "</constraints>"
 )
 
+
 def call_target(
     client: object,
     *,
@@ -38,7 +40,6 @@ def call_target(
     max_retries: int = 2,
 ) -> TargetResult:
     last_err: Exception | None = None
-    start = time.perf_counter()
     for attempt in range(max_retries + 1):
         try:
             t0 = time.perf_counter()
@@ -51,7 +52,9 @@ def call_target(
                     max_tokens=4096,
                 )
                 content = "".join(
-                    block.text for block in resp.content if getattr(block, "type", None) == "text"
+                    block.text
+                    for block in resp.content
+                    if getattr(block, "type", None) == "text"
                 )
                 usage = Usage(resp.usage.input_tokens, resp.usage.output_tokens)
             else:

@@ -27,4 +27,6 @@ def estimate_tokens(text: str) -> int:
 
 def cost_usd(model: str, usage: Usage) -> float:
     input_price, output_price = MODEL_PRICES.get(model, (0.0, 0.0))
-    return (usage.input_tokens * input_price + usage.output_tokens * output_price) / 1_000_000
+    return (
+        usage.input_tokens * input_price + usage.output_tokens * output_price
+    ) / 1_000_000

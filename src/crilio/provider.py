@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
+import pathlib
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -19,6 +22,20 @@ PROVIDER_DEFAULTS: dict[str, dict[str, str]] = {
 }
 
 VALID_PROVIDERS = set(PROVIDER_DEFAULTS)
+
+
+def _is_valid_key_for_provider(provider: str, key: str, base_url: str | None = None) -> bool:
+    if not key:
+        return False
+    k = key.strip()
+    if provider == "openai":
+        if base_url and "groq.com" in base_url:
+            return k.startswith("gsk_") or k.startswith("sk-")
+        return k.startswith("sk-") and not k.startswith("sk-ant-")
+    if provider == "anthropic":
+        return k.startswith("sk-ant-")
+    return True
+
 
 MODEL_CATALOG: dict[str, list[str]] = {
     "openai": [
@@ -52,13 +69,20 @@ def resolve_provider(
 ) -> ResolvedProvider:
     name = (provider or fallback_provider or "openai").lower().strip()
     if name not in VALID_PROVIDERS:
-        raise ValueError(f"unknown provider '{name}' — choose one of: {', '.join(sorted(VALID_PROVIDERS))}")
+        raise ValueError(
+            f"unknown provider '{name}' — choose one of: {', '.join(sorted(VALID_PROVIDERS))}"
+        )
     defaults = PROVIDER_DEFAULTS[name]
     resolved_model = model or defaults["model"]
     resolved_judge = judge_model or defaults["judge_model"]
     resolved_base = base_url or defaults.get("base_url")
     env_key = defaults["env_key"]
     resolved_key = api_key or os.getenv(env_key)
+    if resolved_key and not _is_valid_key_for_provider(name, resolved_key, resolved_base):
+        hint = "sk-ant-..." if name == "anthropic" else "sk-... (or gsk_... for Groq)"
+        raise ValueError(
+            f"Invalid API key for provider '{name}' — expected {hint} for {env_key}, got '{resolved_key[:8]}...'. Check {env_key}."
+        )
     return ResolvedProvider(
         name=name,
         model=resolved_model,
@@ -92,7 +116,7 @@ def resolve_for_test(
         provider=global_provider.name,
         model=None,
         judge_model=test_judge_model or global_provider.judge_model,
-        base_url=None,
+        base_url=cli_base_url or global_provider.base_url,
         api_key=cli_api_key or global_provider.api_key,
         fallback_provider=global_provider.name,
     )
@@ -115,15 +139,19 @@ def infer_provider_from_env() -> str | None:
     return None
 
 
-def validate_api_key(provider: str, api_key: str, base_url: str | None = None) -> tuple[bool, str]:
+def validate_api_key(
+    provider: str, api_key: str, base_url: str | None = None
+) -> tuple[bool, str]:
     if not api_key or len(api_key.strip()) < 6:
         return False, "key too short"
     try:
         if provider == "anthropic":
             from anthropic import Anthropic
+
             Anthropic(api_key=api_key).models.list()
             return True, "ok"
         from openai import OpenAI
+
         kwargs: dict[str, str] = {"api_key": api_key}
         bp = base_url or PROVIDER_DEFAULTS.get(provider, {}).get("base_url")
         if bp:
@@ -136,15 +164,24 @@ def validate_api_key(provider: str, api_key: str, base_url: str | None = None) -
 
 
 def _cache_path() -> pathlib.Path:
-    import pathlib
-
     p = pathlib.Path.home() / ".config" / "crilio" / "models.json"
     return p
 
 
 def _is_chat_model(mid: str) -> bool:
     mid = mid.lower()
-    if any(x in mid for x in ["embedding", "whisper", "tts", "dall", "moderation", "babbage", "davinci"]):
+    if any(
+        x in mid
+        for x in [
+            "embedding",
+            "whisper",
+            "tts",
+            "dall",
+            "moderation",
+            "babbage",
+            "davinci",
+        ]
+    ):
         return False
     return True
 
@@ -156,12 +193,12 @@ def list_models(
     use_cache: bool = True,
     max_age_h: int = 24,
 ) -> tuple[list[str], bool]:
-    import json
-    import pathlib
-    import time
-
     curated = MODEL_CATALOG.get(provider, MODEL_CATALOG["openai"])
-    key = api_key or os.getenv(PROVIDER_DEFAULTS.get(provider, {}).get("env_key", "")) or os.getenv("CRILIO_API_KEY")
+    key = (
+        api_key
+        or os.getenv(PROVIDER_DEFAULTS.get(provider, {}).get("env_key", ""))
+        or os.getenv("CRILIO_API_KEY")
+    )
     if not key:
         return curated, False
     cache = _cache_path()
@@ -188,6 +225,8 @@ def list_models(
         bp = base_url or PROVIDER_DEFAULTS.get(provider, {}).get("base_url")
         if bp:
             kwargs["base_url"] = bp
+        from openai import OpenAI  # noqa: F401
+
         client = OpenAI(**kwargs, timeout=8)
         resp = client.models.list()
         ids = [m.id for m in resp.data if _is_chat_model(m.id)]
@@ -211,9 +250,6 @@ def list_models(
         return curated, False
 
 
-import pathlib
-
-
 def load_dotenv():
     for p in [os.path.join(os.getcwd(), ".env")]:
         if os.path.exists(p):
@@ -233,20 +269,36 @@ def load_dotenv():
 
 def make_client(provider: ResolvedProvider) -> Any:
     load_dotenv()
-    api_key = provider.api_key or os.getenv(PROVIDER_DEFAULTS.get(provider.name, {}).get("env_key", "")) or os.getenv("CRILIO_API_KEY")
+    api_key = (
+        provider.api_key
+        or os.getenv(PROVIDER_DEFAULTS.get(provider.name, {}).get("env_key", ""))
+        or os.getenv("CRILIO_API_KEY")
+    )
     if not api_key:
         env = PROVIDER_DEFAULTS.get(provider.name, {}).get("env_key", "OPENAI_API_KEY")
-        raise RuntimeError(f"Missing credentials for provider '{provider.name}' — set {env} or add it to .env")
+        raise RuntimeError(
+            f"Missing credentials for provider '{provider.name}' — set {env} or add it to .env"
+        )
+    if not _is_valid_key_for_provider(provider.name, api_key, provider.base_url):
+        env = PROVIDER_DEFAULTS.get(provider.name, {}).get("env_key", "OPENAI_API_KEY")
+        hint = "sk-ant-..." if provider.name == "anthropic" else "sk-... (or gsk_... for Groq)"
+        raise RuntimeError(
+            f"Invalid API key for provider '{provider.name}' — expected {hint} for {env}, got '{api_key[:8]}...'. Use the correct provider or set {env}."
+        )
     if provider.name == "anthropic":
         try:
             from anthropic import Anthropic
         except ImportError as exc:
-            raise RuntimeError("Anthropic support requires the 'anthropic' package; install crilio[anthropic]") from exc
+            raise RuntimeError(
+                "Anthropic support requires the 'anthropic' package; install crilio[anthropic]"
+            ) from exc
         return Anthropic(api_key=api_key)
     try:
         from openai import OpenAI
     except ImportError as exc:
-        raise RuntimeError("OpenAI-compatible providers require the 'openai' package") from exc
+        raise RuntimeError(
+            "OpenAI-compatible providers require the 'openai' package"
+        ) from exc
     kwargs: dict[str, str] = {"api_key": api_key}
     if provider.base_url:
         kwargs["base_url"] = provider.base_url
