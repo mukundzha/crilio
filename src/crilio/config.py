@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import pathlib
 import re
 from typing import Literal, Optional
@@ -111,11 +112,27 @@ class CrilioConfig(BaseModel):
         return self
 
 
+_ENV_VAR_RE = re.compile(r"\$\{([^}:]+)(?::-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def _expand_env_vars(text: str) -> str:
+    def repl(m):
+        if m.group(3):
+            return os.getenv(m.group(3), "")
+        key, default = m.group(1), m.group(2)
+        val = os.getenv(key)
+        if val is None:
+            return default if default is not None else m.group(0)
+        return val
+    return _ENV_VAR_RE.sub(repl, text)
+
+
 def load_config(path: str | pathlib.Path) -> CrilioConfig:
     p = pathlib.Path(path)
     if not p.exists():
         raise FileNotFoundError(f"config not found: {p}")
     text = p.read_text(encoding="utf-8")
+    text = _expand_env_vars(text)
     if _LEAK_RE.search(text):
         raise ValueError(
             "Potential API key detected in crilio.yaml — remove keys, use .env / GitHub Secrets (OPENAI_API_KEY / ANTHROPIC_API_KEY) instead"
@@ -171,59 +188,46 @@ def dump_yaml(cfg: CrilioConfig) -> str:
 
 
 DEFAULT_CONFIG_YAML = """\
-# ==========================================
-# Crilio Configuration (crilio.yaml)
-# The CI/CD quality gate for AI.
-# ==========================================
+# crilio.yaml — CI/CD quality gate for AI
+# Keys in .env (OPENAI_API_KEY / ANTHROPIC_API_KEY) — never commit keys here
+# Env interpolation: ${VAR} / ${VAR:-default}
 
 settings:
-  # Provider is automatically inferred from your API key (OPENAI_API_KEY or ANTHROPIC_API_KEY)
-  provider: openai
-  
-  # The AI model you are testing (Target)
-  target_model: gpt-4o-mini
-  
-  # The fast/cheap model that grades the tests (Judge)
-  judge_model: gpt-4o-mini
-  
-  # Hard limit on API spending per month (in USD) to prevent surprises
-  max_monthly_budget_usd: 10.0
-
-# ==========================================
-# Test Cases
-# ==========================================
+  provider: ${CRILIO_PROVIDER:-openai}
+  target_model: ${CRILIO_MODEL:-gpt-4o-mini}
+  judge_model: ${CRILIO_JUDGE_MODEL:-gpt-4o-mini}
+  max_monthly_budget_usd: ${CRILIO_BUDGET:-10.0}
+  # system: "You are a concise, professional support assistant."
 
 tests:
-  # Test 1: Semantic Rule Check (API)
   - name: "Refund Policy Check"
     prompt: "How long do I have to return a product?"
     rules:
       - "Must mention the 30-day return window."
       - "Must NOT mention competitor names like Amazon or Walmart."
-    tags:
-      - "refund"
-      - "policy"
-      - "customer service"
+    tags: ["refund", "policy"]
 
-  # Test 2: JSON Formatting Enforcement (API)
   - name: "JSON Format Check"
     prompt: "Return my user status as JSON."
     rules:
       - "Must return valid JSON with keys 'status' and 'user_id'."
       - "Must NOT include apologies or extra prose."
-    tags:
-      - "json"
-      - "formatting"
+    tags: ["json", "formatting"]
 
-  # Test 3: Local Model Execution (Zero API Cost, Total Privacy)
-  # Uncomment the lines below to test a local model via Ollama!
-  # - name: "Local Llama 3 Check"
-  #   prompt: "Say hello in a professional tone."
+  # --- Kitchen-sink example (every feature) — uncomment to use ---
+  # - name: "Full Feature Showcase"
+  #   prompt: "Summarize our refund policy for a premium customer in JSON."
+  #   system: "You are a helpful support assistant. Be concise and professional."
+  #   provider: openai
+  #   model: gpt-4o-mini
+  #   judge_model: gpt-4o-mini
+  #   tags: ["premium", "refund", "json", "smoke"]
+  #   skip: false
   #   target:
-  #     command: "ollama run llama3 '{{prompt}}'"
+  #     command: "python bot.py '{{prompt}}'"
   #   rules:
-  #     - "Must contain the word 'Hello' or 'Hi'."
-  #   tags:
-  #     - "local"
-  #     - "llama"
+  #     - "Must mention the 30-day return window."
+  #     - "Must return valid JSON with keys 'summary' and 'days'."
+  #     - "Must NOT mention competitor names like Amazon or Walmart."
+  #     - "Must be concise (under 100 words)."
 """

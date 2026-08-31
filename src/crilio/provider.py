@@ -29,8 +29,6 @@ def _is_valid_key_for_provider(provider: str, key: str, base_url: str | None = N
         return False
     k = key.strip()
     if provider == "openai":
-        if base_url and "groq.com" in base_url:
-            return k.startswith("gsk_") or k.startswith("sk-")
         return k.startswith("sk-") and not k.startswith("sk-ant-")
     if provider == "anthropic":
         return k.startswith("sk-ant-")
@@ -79,7 +77,7 @@ def resolve_provider(
     env_key = defaults["env_key"]
     resolved_key = api_key or os.getenv(env_key)
     if resolved_key and not _is_valid_key_for_provider(name, resolved_key, resolved_base):
-        hint = "sk-ant-..." if name == "anthropic" else "sk-... (or gsk_... for Groq)"
+        hint = "sk-ant-..." if name == "anthropic" else "sk-..."
         raise ValueError(
             f"Invalid API key for provider '{name}' — expected {hint} for {env_key}, got '{resolved_key[:8]}...'. Check {env_key}."
         )
@@ -281,7 +279,7 @@ def make_client(provider: ResolvedProvider) -> Any:
         )
     if not _is_valid_key_for_provider(provider.name, api_key, provider.base_url):
         env = PROVIDER_DEFAULTS.get(provider.name, {}).get("env_key", "OPENAI_API_KEY")
-        hint = "sk-ant-..." if provider.name == "anthropic" else "sk-... (or gsk_... for Groq)"
+        hint = "sk-ant-..." if provider.name == "anthropic" else "sk-..."
         raise RuntimeError(
             f"Invalid API key for provider '{provider.name}' — expected {hint} for {env}, got '{api_key[:8]}...'. Use the correct provider or set {env}."
         )

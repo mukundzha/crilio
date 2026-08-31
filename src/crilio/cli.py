@@ -124,6 +124,8 @@ def _show_homepage():
         ("diff", "Diff prompts/rules vs git ref (--base, --fail-on-change)"),
         ("validate", "Validate config without calling provider APIs"),
         ("run", "Run the gate: target → judge → pass/fail (--tag, --model, --dry-run)"),
+        ("history", "Show recent runs from .crilio/history.jsonl"),
+        ("report", "Generate HTML/JUnit report from last run"),
         ("--docs", "Full interactive guide"),
         ("--version", "Show version"),
     ]
@@ -221,28 +223,39 @@ def docs():
 
 @app.command()
 def init(
-    force: bool = typer.Option(
-        False, "--force", "-f", help="Overwrite existing crilio.yaml"
-    ),
-    yes: bool = typer.Option(
-        False, "--yes", "-y", help="Non-interactive, use defaults"
-    ),
+    force: bool = typer.Option(False, "--force", "-f", help="Overwrite existing crilio.yaml"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Non-interactive, use defaults"),
+    provider: str = typer.Option(None, "--provider", help="openai or anthropic"),
+    model: str = typer.Option(None, "--model", "-m", help="Target model"),
+    judge_model: str = typer.Option(None, "--judge-model", help="Judge model"),
+    base_url: str = typer.Option(None, "--base-url", help="API base URL (e.g. https://api.groq.com/openai/v1)"),
 ):
     """Initialize crilio.yaml — Step 3 of setup."""
     dest = pathlib.Path("crilio.yaml")
     if dest.exists() and not force:
-        err_console.print(
-            f"[yellow]crilio.yaml already exists at {dest} — use --force to overwrite[/]"
-        )
+        err_console.print(f"[yellow]crilio.yaml already exists at {dest} — use --force to overwrite[/]")
         raise typer.Exit(1)
-    from crilio.config import dump_yaml
-    import yaml as _yaml
-
-    cfg = CrilioConfig.model_validate(_yaml.safe_load(DEFAULT_CONFIG_YAML))
+    text = DEFAULT_CONFIG_YAML
+    if provider:
+        text = text.replace("${CRILIO_PROVIDER:-openai}", provider)
+    if model:
+        text = text.replace("${CRILIO_MODEL:-openai/gpt-oss-120b}", model)
+        text = text.replace("openai/gpt-oss-120b", model)
+    if judge_model:
+        text = text.replace("${CRILIO_JUDGE_MODEL:-openai/gpt-oss-120b}", judge_model)
+    if base_url:
+        text = text.replace("${CRILIO_BASE_URL:-https://api.groq.com/openai/v1}", base_url)
+        text = text.replace("https://api.groq.com/openai/v1", base_url)
     if dest.exists() and force:
         dest.unlink()
-    dest.write_text(dump_yaml(cfg), encoding="utf-8")
-    console.print(f"[green]✓ Created {dest}[/] — {len(cfg.tests)} tests")
+    dest.write_text(text, encoding="utf-8")
+    try:
+        from crilio.config import load_config as _lc
+        _cfg = _lc(str(dest))
+        n = len(_cfg.tests)
+    except Exception:
+        n = text.count('- name:')
+    console.print(f"[green]✓ Created {dest}[/] — {n} tests")
     console.print()
     console.print(
         Panel.fit(
@@ -759,27 +772,33 @@ def run(
         console.print(eval_tbl)
         console.print()
 
+    gate_passed = gate_passed and not budget_exceeded
+    payload = {
+        "gate": "PASS" if gate_passed else "FAIL",
+        "elapsed_s": round(elapsed, 2),
+        "summary": {
+            "passed": total_pass,
+            "failed": total_fail,
+            "total": total_pass + total_fail,
+            "input_tokens": total_input_tokens,
+            "output_tokens": total_output_tokens,
+            "cost_usd": round(total_cost, 6),
+            "max_monthly_budget_usd": budget,
+            "budget_exceeded": budget_exceeded,
+            "stopped_early": stopped_early,
+        },
+        "tests": results,
+    }
+    if not dry_run:
+        try:
+            from crilio.history import save_run
+
+            save_run(payload)
+        except Exception:
+            pass
     if json_output:
-        gate_passed = gate_passed and not budget_exceeded
-        payload = {
-            "gate": "PASS" if gate_passed else "FAIL",
-            "elapsed_s": round(elapsed, 2),
-            "summary": {
-                "passed": total_pass,
-                "failed": total_fail,
-                "total": total_pass + total_fail,
-                "input_tokens": total_input_tokens,
-                "output_tokens": total_output_tokens,
-                "cost_usd": round(total_cost, 6),
-                "max_monthly_budget_usd": budget,
-                "budget_exceeded": budget_exceeded,
-                "stopped_early": stopped_early,
-            },
-            "tests": results,
-        }
         console.print_json(data=payload)
     else:
-        gate_passed = gate_passed and not budget_exceeded
         _render_summary(gate_passed, total_pass, total_fail, elapsed, budget_exceeded)
         cost_line = Text(f"Cost  ${total_cost:.4f}", style="dim")
         cost_line.append(
@@ -1162,6 +1181,76 @@ def _is_pr() -> bool:
     if ref.startswith("refs/pull/"):
         return True
     return False
+
+
+@app.command()
+def history(
+    limit: int = typer.Option(20, "--limit", "-n", help="Number of runs to show"),
+    json_output: bool = typer.Option(False, "--json", help="Machine-readable JSON"),
+):
+    """Show recent runs from .crilio/history.jsonl."""
+    from crilio.history import load_history
+
+    records = load_history(limit=limit)
+    if json_output:
+        console.print_json(data=records)
+        raise typer.Exit(0)
+    if not records:
+        console.print("[dim]No history — run [bold #FF65C3]crilio run[/] first[/]")
+        raise typer.Exit(0)
+    tbl = Table(show_header=True, header_style="bold #FF65C3", box=None, padding=(0, 1))
+    tbl.add_column("Executed", style="dim", no_wrap=True)
+    tbl.add_column("Gate", justify="center", width=6)
+    tbl.add_column("Pass/Fail", justify="center")
+    tbl.add_column("Took", justify="right", style="dim")
+    tbl.add_column("Cost", justify="right", style="dim")
+    tbl.add_column("SHA", style="dim", no_wrap=True)
+    tbl.add_column("Branch", style="dim")
+    for r in records:
+        gate = r.get("gate", "?")
+        style = "green" if gate == "PASS" else "red bold" if gate == "FAIL" else "dim"
+        s = r.get("summary", {})
+        took = f"{r.get('elapsed_s', 0):.1f}s" if r.get("elapsed_s") is not None else "-"
+        ts = (r.get("timestamp") or "")[:19].replace("T", " ")
+        tbl.add_row(
+            ts,
+            Text(gate, style=style),
+            f"{s.get('passed',0)}/{s.get('total',0)}",
+            took,
+            f"${s.get('cost_usd',0):.4f}",
+            (r.get("git_sha") or "-")[:7],
+            r.get("git_branch") or "-",
+        )
+    console.print(tbl)
+    console.print(f"[dim]{len(records)} run(s) — .crilio/history.jsonl[/]")
+    raise typer.Exit(0)
+
+
+@app.command()
+def report(
+    fmt: str = typer.Option("html", "--format", "-f", help="html or junit"),
+    output: str = typer.Option(None, "--output", "-o", help="Output path"),
+    json_output: bool = typer.Option(False, "--json", help="Print payload instead of writing file"),
+):
+    """Generate HTML or JUnit report from last run."""
+    from crilio.history import load_last_payload
+    from crilio.report import write_report
+
+    payload = load_last_payload()
+    if payload is None:
+        err_console.print("[red]No history — run [bold #FF65C3]crilio run[/] first[/]")
+        raise typer.Exit(2)
+    if fmt not in ("html", "junit"):
+        err_console.print("[red]--format must be html or junit[/]")
+        raise typer.Exit(2)
+    if json_output:
+        console.print_json(data=payload)
+        raise typer.Exit(0)
+    default = "crilio-report.html" if fmt == "html" else "crilio-junit.xml"
+    out = pathlib.Path(output or default)
+    write_report(payload, fmt, out)
+    console.print(f"[green]✓ Report written to {out}[/] — gate={payload.get('gate')} {payload.get('summary',{}).get('passed',0)}/{payload.get('summary',{}).get('total',0)}")
+    raise typer.Exit(0)
 
 
 def _render_summary(

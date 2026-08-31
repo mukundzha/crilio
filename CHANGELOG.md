@@ -9,6 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 ### Changed
 - TBD
 
+## [0.0.8] - 2026-08-31
+
+### Added
+- **History & Report** — `crilio history [--limit --json]` shows recent runs (`Executed` = when `crilio run` was given, `Took` = `elapsed_s`) from `.crilio/history.jsonl` + `.crilio/runs/*.json`; `crilio report -f html|junit [-o path]` generates `crilio-report.html` / `crilio-junit.xml` from last run; `crilio run` auto-persists (non-dry) with `git_sha/branch`, silent-fail, `.gitignore` updated
+- **Setupable crilio.yaml template** — env interpolation `${VAR}` / `${VAR:-default}` (`CRILIO_PROVIDER/MODEL/JUDGE_MODEL/BUDGET`) in `load_config`; `crilio init --provider/--model/--judge-model/--base-url` flags; refined 30-line prod `crilio.yaml` + `DEFAULT_CONFIG_YAML` with kitchen-sink commented example (all `TestCase` fields: `system/provider/model/judge_model/tags/skip/target.command/rules`)
+- **Provider strictness** — Groq removed; `openai` requires `sk-...`, `anthropic` requires `sk-ant-...`, `gsk_...` now invalid; only `openai` / `anthropic` / local `target.command` allowed
+
+### Changed
+- `src/crilio/config.py` — `_expand_env_vars()` + `_ENV_VAR_RE`, `DEFAULT_CONFIG_YAML` rewritten to setupable template
+- `src/crilio/cli.py` — `init()` now templated file write + `_cfg` validation, `run()` persists via `save_run()`, `history` + `report` commands, homepage `history/report` entries, `--provider/--model/--base-url` options
+- `src/crilio/provider.py` — `_is_valid_key_for_provider()` strict (`sk-` only for openai), hint strings simplified
+- `crilio.yaml` — 54→44→30 lines, removed Groq presets, `gpt-4o-mini` defaults, local target preserved as kitchen-sink
+
+### Removed
+- `bot.py` — mock local bot deleted; Groq `gsk_...` / `https://api.groq.com/openai/v1` support removed
+
 ## [0.0.7] - 2026-08-29
 
 ### Added
@@ -104,7 +120,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sem
 - GitHub Actions workflow template on `pull_request`
 - License AGPL-3.0-only
 
-[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.7...HEAD
+[Unreleased]: https://github.com/mukundzha/crilio/compare/v0.0.8...HEAD
+[0.0.8]: https://github.com/mukundzha/crilio/compare/v0.0.7...v0.0.8
 [0.0.7]: https://github.com/mukundzha/crilio/compare/v0.0.6...v0.0.7
 [0.0.6]: https://github.com/mukundzha/crilio/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/mukundzha/crilio/compare/v0.0.4...v0.0.5

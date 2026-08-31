@@ -62,3 +62,4 @@ Desktop.ini
 # Logs
 *.log
 npm-debug.log*
+.crilio/
